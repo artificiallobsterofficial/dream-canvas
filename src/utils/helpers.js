@@ -17,6 +17,9 @@ export const safeContent = (c) => {
 export const todayKey = (d = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
+// "Never miss twice": a single missed day is forgiven (a streak freeze);
+// only two consecutive missed days end the streak. Today doesn't count as
+// a miss while it's still in progress.
 export const calculateStreak = (content) => {
   let td = {};
   try {
@@ -26,15 +29,39 @@ export const calculateStreak = (content) => {
   }
   const today = new Date();
   let streak = 0;
-  for (let i = 0; i < 30; i++) {
+  let misses = 0;
+  for (let i = 0; i < 60; i++) {
     const d = new Date();
     d.setDate(today.getDate() - i);
     const st = normalizeDayData(td[todayKey(d)]).status;
-    if (st === "done") streak++;
-    else if (i === 0) continue;
-    else break;
+    if (st === "done") {
+      streak++;
+      misses = 0;
+    } else if (i === 0) {
+      continue;
+    } else {
+      misses++;
+      if (misses >= 2) break;
+    }
   }
   return streak;
+};
+
+// True when yesterday was missed but the streak survived via never-miss-twice —
+// used to tell the user a freeze saved them (and not to miss today).
+export const isFreezeActive = (content) => {
+  let td = {};
+  try {
+    td = JSON.parse(safeContent(content) || "{}");
+  } catch {
+    return false;
+  }
+  const doneOn = (offset) => {
+    const d = new Date();
+    d.setDate(d.getDate() - offset);
+    return normalizeDayData(td[todayKey(d)]).status === "done";
+  };
+  return !doneOn(1) && doneOn(2) && calculateStreak(content) >= 1;
 };
 
 // Downscale an image file to keep localStorage usage manageable.

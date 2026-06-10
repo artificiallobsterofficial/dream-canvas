@@ -1,9 +1,9 @@
 export const LIBRARY_RESOURCES = [
   {
-    category: "Manifestation 101",
+    category: "Visualization That Works",
     items: [
-      { title: "The 3-6-9 Method", content: "Write your desire 3 times in the morning, 6 times in the afternoon, and 9 times at night." },
-      { title: "Visualization Basics", content: "Spend 5 minutes every morning feeling the emotions of having already achieved your goal." },
+      { title: "WOOP, Not Just Wishes", content: "Wish, Outcome, Obstacle, Plan. Picture your goal vividly — then name what will get in the way, and decide in advance: 'If [obstacle], then I will [action]'. If-then plans are one of psychology's best-proven goal techniques." },
+      { title: "Rehearse the Process, Not the Podium", content: "Students who visualized themselves studying outperformed those who visualized getting an A. Picture yourself doing the work — the steps, not just the trophy." },
     ],
   },
   {
@@ -18,6 +18,7 @@ export const LIBRARY_RESOURCES = [
     items: [
       { title: "S.M.A.R.T. Goals", content: "Specific, Measurable, Achievable, Relevant, and Time-bound." },
       { title: "Breaking it Down", content: "Take your big yearly goal and break it into quarterly milestones, then monthly actions." },
+      { title: "Never Miss Twice", content: "Research on habit formation shows missing a single day does no real damage — it's giving up after the miss that hurts. One rule: never miss twice in a row. Your trackers have a built-in freeze for exactly this." },
     ],
   },
 ];

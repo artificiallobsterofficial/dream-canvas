@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { Zap, StickyNote, Activity, CheckCircle2, ListTodo, PenLine, Trophy, Lock } from "lucide-react";
-import { normalizeDayData, safeContent, todayKey } from "../utils/helpers";
+import { Zap, StickyNote, Activity, CheckCircle2, ListTodo, PenLine, Trophy, Lock, Shield } from "lucide-react";
+import { normalizeDayData, safeContent, todayKey, calculateStreak, isFreezeActive } from "../utils/helpers";
 
 const FocusDashboard = ({ items, userLevel, userXp, onUpdateItem, onAddXp, levels }) => {
   const [today, setToday] = useState("");
@@ -48,10 +48,12 @@ const FocusDashboard = ({ items, userLevel, userXp, onUpdateItem, onAddXp, level
   const habits = items.filter((i) => i.type === "tracker");
   const goalItem = items.find((i) => i.type === "goals");
   let todoList = [];
+  let woop = { obstacle: "", plan: "" };
   if (goalItem) {
     try {
       const p = JSON.parse(goalItem.content || "{}");
       if (p.short) todoList = p.short.split("\n").filter((l) => l.trim());
+      woop = { obstacle: p.obstacle || "", plan: p.plan || "" };
     } catch {}
   }
   const currentLevelInfo = levels.find((l) => l.level === userLevel) || levels[0];
@@ -115,6 +117,8 @@ const FocusDashboard = ({ items, userLevel, userXp, onUpdateItem, onAddXp, level
                 try {
                   isDone = normalizeDayData(JSON.parse(safeContent(habit.content))[today]).status === "done";
                 } catch {}
+                const streak = calculateStreak(habit.content);
+                const frozen = isFreezeActive(habit.content);
                 return (
                   <div
                     key={habit.id}
@@ -125,6 +129,8 @@ const FocusDashboard = ({ items, userLevel, userXp, onUpdateItem, onAddXp, level
                       {isDone && <CheckCircle2 size={12} strokeWidth={4} />}
                     </div>
                     <span className={`font-medium flex-1 text-sm ${isDone ? "text-gray-400 line-through" : "text-gray-700"}`}>{habit.title || "Untitled"}</span>
+                    {frozen && <span title="A freeze saved this streak — never miss twice!" className="text-[10px]">🧊</span>}
+                    {streak >= 2 && <span className="text-[10px] font-bold text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded-full">🔥 {streak}</span>}
                     {isDone && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full">+20 XP</span>}
                   </div>
                 );
@@ -147,6 +153,24 @@ const FocusDashboard = ({ items, userLevel, userXp, onUpdateItem, onAddXp, level
                 </div>
               ))}
             </div>
+            {(woop.obstacle || woop.plan) && (
+              <div className="mt-3 p-3 bg-amber-50 border border-amber-100 rounded-xl">
+                <h4 className="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                  <Shield size={10} /> Your If-Then Plan
+                </h4>
+                {/* Labeled lines, not sentence-splicing — user text stays verbatim. */}
+                {woop.obstacle && (
+                  <p className="text-xs text-amber-900 leading-relaxed whitespace-pre-wrap">
+                    <span className="font-bold">{woop.plan ? "If:" : "Obstacle:"}</span> {woop.obstacle.trim()}
+                  </p>
+                )}
+                {woop.plan && (
+                  <p className="text-xs text-amber-900 leading-relaxed whitespace-pre-wrap">
+                    <span className="font-bold">{woop.obstacle ? "Then:" : "Plan:"}</span> {woop.plan.trim()}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex-1 flex flex-col">
             <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2">

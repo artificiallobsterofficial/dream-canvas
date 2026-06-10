@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { normalizeDayData } from "../../utils/helpers";
+import { normalizeDayData, isFreezeActive } from "../../utils/helpers";
 import { TRACKER_MARKERS } from "../../constants/colors";
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -93,6 +93,11 @@ const TrackerCalendar = ({ item, zenMode, onUpdate, onDayClick }) => {
       <div className="grid grid-cols-7 gap-0.5 place-items-center mb-auto">{days}</div>
       {!zenMode && (
         <div className="mt-1 pt-1 border-t border-gray-100">
+          {isFreezeActive(item.content) && (
+            <div className="text-[9px] text-sky-600 bg-sky-50 border border-sky-100 rounded-md px-1.5 py-0.5 mb-1 flex items-center gap-1">
+              🧊 <span className="font-medium">Freeze saved your streak — never miss twice!</span>
+            </div>
+          )}
           <div className="flex justify-between text-[9px] text-gray-500 mb-0.5">
             <span>Progress</span>
             <span className="font-bold" style={{ color: themeColor }}>{doneCount}/{daysInMonth}</span>

@@ -14,7 +14,7 @@ export const TEMPLATES = {
     name: "Tech Founder",
     items: [
       { type: "tracker", title: "Deep Work (4h)", x: 80, y: 80, width: 280, height: 350, content: "{}", color: "#3b82f6", marker: "check", zIndex: 1 },
-      { type: "goals", content: '{"short":"- Launch MVP\\n- Get 10 users","medium":"- Product Hunt","long":"- $10k MRR"}', x: 400, y: 80, width: 500, height: 300, zIndex: 1 },
+      { type: "goals", content: '{"short":"- Launch MVP\\n- Get 10 users","medium":"- Product Hunt","long":"- $10k MRR","obstacle":"I open social media \\"for research\\" and lose an hour","plan":"close the tab and write one line of code first"}', x: 400, y: 80, width: 500, height: 340, zIndex: 1 },
       { type: "text", content: "BUILD. SHIP. REPEAT.", x: 350, y: 10, width: 500, height: 70, font: "font-mono", color: "#111827", zIndex: 1 },
     ],
     config: { backgroundColor: "#ffffff" },
