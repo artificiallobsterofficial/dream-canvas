@@ -13,3 +13,19 @@ body {
   font-family: "Inter", system-ui, sans-serif;
   overscroll-behavior: none;
 }
+
+/* Bigger touch targets for item handles on touch devices */
+@media (pointer: coarse) {
+  .ctrl {
+    transform: scale(1.45);
+  }
+}
+
+/* Respect notches/home indicators when installed as an app */
+@media (display-mode: standalone) {
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}

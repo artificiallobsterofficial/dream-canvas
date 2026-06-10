@@ -10,6 +10,8 @@ import { generateId, normalizeDayData, safeContent, todayKey, calculateStreak } 
 import { StorageService, SnapshotService, requestPersistence } from "./services/storage";
 import { callAI, buildBoardContext, COACH_SYSTEM_WITH_BOARD } from "./services/ai";
 import { generateWeeklyReview } from "./services/review";
+import { mirrorReminderState, maybeNotify } from "./services/reminders";
+import InstallPrompt from "./components/InstallPrompt";
 import { LEVELS } from "./constants/levels";
 import { TEMPLATES } from "./constants/templates";
 
@@ -52,6 +54,10 @@ export default function App() {
   // Pan & zoom: world coords -> screen via translate(view.x, view.y) scale(view.zoom)
   const [view, setView] = useState({ x: 0, y: 0, zoom: 1 });
   const [panState, setPanState] = useState(null);
+  // Touch pinch state lives in a ref — only setView triggers renders.
+  const pinchRef = useRef({ pointers: new Map(), pinch: null });
+  const viewRef = useRef(view);
+  viewRef.current = view;
 
   // Modals
   const [showImageModal, setShowImageModal] = useState(false);
@@ -100,7 +106,19 @@ export default function App() {
   useEffect(() => {
     if (!loaded) return;
     StorageService.save({ profile: { xp: userXp, level: userLevel, awardedDays }, items, boardConfig, lastExportAt, lastActive: Date.now() });
+    mirrorReminderState(items, boardConfig.reminder); // keep the SW's view fresh
   }, [items, boardConfig, userXp, userLevel, awardedDays, lastExportAt, loaded]);
+
+  // ─ Foreground reminder check (once a minute while the app is open) ─
+  const reminderRef = useRef({ items: [], reminder: null });
+  reminderRef.current = { items, reminder: boardConfig.reminder };
+  useEffect(() => {
+    if (!loaded) return;
+    const check = () => maybeNotify(reminderRef.current.items, reminderRef.current.reminder);
+    check();
+    const iv = setInterval(check, 60000);
+    return () => clearInterval(iv);
+  }, [loaded]);
 
   const currentState = () => ({ profile: { xp: userXp, level: userLevel, awardedDays }, items, boardConfig, lastExportAt });
 
@@ -143,9 +161,12 @@ export default function App() {
     else addXp(20, "✓ Habit done +20 XP");
   };
 
-  // ─ Item drag + canvas pan (window-level pointer listeners) ─
+  // ─ Item drag + canvas pan + touch pinch (window-level pointer listeners) ─
   useEffect(() => {
-    const handleUp = () => {
+    const handleUp = (e) => {
+      const pr = pinchRef.current;
+      pr.pointers.delete(e.pointerId);
+      if (pr.pointers.size < 2) pr.pinch = null;
       if (dragState.isDragging) setDragState({ isDragging: false });
       if (panState) setPanState(null);
     };
@@ -153,20 +174,44 @@ export default function App() {
       const cx = e.clientX ?? e.touches?.[0]?.clientX;
       const cy = e.clientY ?? e.touches?.[0]?.clientY;
       if (cx == null) return;
-      if (dragState.isDragging) {
+
+      const pr = pinchRef.current;
+      if (pr.pointers.has(e.pointerId)) pr.pointers.set(e.pointerId, { x: cx, y: cy });
+      if (pr.pinch && pr.pointers.size >= 2) {
+        e.preventDefault();
+        const [p1, p2] = [...pr.pointers.values()];
+        const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+        const rect = boardRef.current?.getBoundingClientRect();
+        if (!rect || pr.pinch.startDist === 0) return;
+        const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, pr.pinch.startZoom * (dist / pr.pinch.startDist)));
+        const scale = newZoom / pr.pinch.startView.zoom;
+        const sx = pr.pinch.startMid.x - rect.left;
+        const sy = pr.pinch.startMid.y - rect.top;
+        setView({
+          zoom: newZoom,
+          x: mid.x - rect.left - (sx - pr.pinch.startView.x) * scale,
+          y: mid.y - rect.top - (sy - pr.pinch.startView.y) * scale,
+        });
+        return;
+      }
+
+      if (dragState.isDragging && e.pointerId === dragState.pointerId) {
         e.preventDefault();
         const dx = (cx - dragState.startX) / view.zoom;
         const dy = (cy - dragState.startY) / view.zoom;
         setItems((prev) => prev.map((i) => (i.id === dragState.id ? { ...i, x: dragState.ix + dx, y: dragState.iy + dy } : i)));
-      } else if (panState) {
+      } else if (panState && e.pointerId === panState.pointerId) {
         e.preventDefault();
         setView((v) => ({ ...v, x: panState.vx + (cx - panState.startX), y: panState.vy + (cy - panState.startY) }));
       }
     };
     window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleUp);
     window.addEventListener("pointermove", handleMove);
     return () => {
       window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
       window.removeEventListener("pointermove", handleMove);
     };
   }, [dragState, panState, view.zoom]);
@@ -258,18 +303,48 @@ export default function App() {
 
   const handlePointerDownItem = (e, item) => {
     e.stopPropagation();
+    if (pinchRef.current.pinch) return; // second finger during a pinch isn't a drag
     setSelectedId(item.id);
     const maxZ = Math.max(...items.map((i) => i.zIndex || 0), 0);
     setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, zIndex: maxZ + 1 } : i)));
-    setDragState({ isDragging: true, id: item.id, startX: e.clientX, startY: e.clientY, ix: item.x, iy: item.y });
+    setDragState({ isDragging: true, pointerId: e.pointerId, id: item.id, startX: e.clientX, startY: e.clientY, ix: item.x, iy: item.y });
   };
 
+  // Track every pointer that lands on the board — capture phase, so item
+  // handlers' stopPropagation can't hide fingers from the pinch detector.
+  useEffect(() => {
+    const el = boardRef.current;
+    if (!el || viewMode !== "vision") return;
+    const onDownCapture = (e) => {
+      const pr = pinchRef.current;
+      pr.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pr.pointers.size === 2) {
+        const [p1, p2] = [...pr.pointers.values()];
+        const v = viewRef.current;
+        pr.pinch = {
+          startDist: Math.hypot(p1.x - p2.x, p1.y - p2.y),
+          startZoom: v.zoom,
+          startView: { ...v },
+          startMid: { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 },
+        };
+        // A pinch overrides any in-progress drag or pan.
+        setDragState({ isDragging: false });
+        setPanState(null);
+      }
+    };
+    el.addEventListener("pointerdown", onDownCapture, true);
+    return () => el.removeEventListener("pointerdown", onDownCapture, true);
+  }, [viewMode, loaded]);
+
   const handleBoardPointerDown = (e) => {
-    // Empty-canvas press: deselect and start panning.
+    // Empty-canvas press: deselect and start panning (capture listener above
+    // has already recorded the pointer and possibly started a pinch).
     if (e.target.closest(".board-item") || e.target.closest("button")) return;
+    const pr = pinchRef.current;
+    if (pr.pinch || pr.pointers.size >= 2) return;
     setSelectedId(null);
     setShowAddMenu(false);
-    setPanState({ startX: e.clientX, startY: e.clientY, vx: view.x, vy: view.y });
+    setPanState({ pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, vx: view.x, vy: view.y });
   };
 
   // ─ Templates / clear / export / import ─
@@ -469,8 +544,8 @@ export default function App() {
           <div className="bg-gradient-to-tr from-purple-600 to-blue-500 p-1.5 rounded-lg text-white">
             <Layers size={18} />
           </div>
-          <h1 className="text-base font-bold text-gray-900 leading-none">DreamCanvas</h1>
-          <div className="h-5 w-px bg-gray-200 mx-1" />
+          <h1 className="text-base font-bold text-gray-900 leading-none hidden sm:block">DreamCanvas</h1>
+          <div className="h-5 w-px bg-gray-200 mx-1 hidden sm:block" />
           <div className="flex bg-gray-100 p-0.5 rounded-lg">
             <button
               onClick={() => setViewMode("vision")}
@@ -761,6 +836,7 @@ export default function App() {
         )}
         {confirmModal.isOpen && <ConfirmModal message={confirmModal.message} onConfirm={confirmModal.onConfirm} onCancel={() => setConfirmModal({ isOpen: false })} />}
       </div>
+      <InstallPrompt />
     </div>
   );
 }

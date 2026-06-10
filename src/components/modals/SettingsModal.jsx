@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { Settings, X, Trash2, History, RotateCcw, KeyRound } from "lucide-react";
+import { Settings, X, Trash2, History, RotateCcw, KeyRound, Bell } from "lucide-react";
 import { COLORS } from "../../constants/colors";
 import { getAiProvider, getAiSource, getStoredKey, setStoredKey, callAI } from "../../services/ai";
 import { SnapshotService } from "../../services/storage";
+import { enableReminders } from "../../services/reminders";
 
 const REASON_LABELS = {
   daily: "Daily auto-backup",
@@ -24,6 +25,24 @@ const SettingsModal = ({ boardConfig, setBoardConfig, onClearBoard, onRestoreSna
 
   const provider = getAiProvider();
   const source = getAiSource();
+  const reminder = boardConfig.reminder || { enabled: false, time: "20:00" };
+  const [reminderError, setReminderError] = useState(null);
+
+  const toggleReminder = async (enabled) => {
+    setReminderError(null);
+    if (enabled) {
+      const result = await enableReminders();
+      if (result !== "granted") {
+        setReminderError(
+          result === "unsupported"
+            ? "This browser doesn't support notifications."
+            : "Notifications are blocked — allow them for this site in your browser settings, then try again."
+        );
+        return;
+      }
+    }
+    setBoardConfig({ ...boardConfig, reminder: { ...reminder, enabled } });
+  };
   const saveKey = async () => {
     const k = keyInput.trim();
     if (!k) {
@@ -102,6 +121,34 @@ const SettingsModal = ({ boardConfig, setBoardConfig, onClearBoard, onRestoreSna
                 ))}
               </div>
             )}
+          </div>
+
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+              <Bell size={11} /> Daily Reminder
+            </label>
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <label className="flex items-center gap-2 text-[11px] text-gray-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!reminder.enabled}
+                  onChange={(e) => toggleReminder(e.target.checked)}
+                  className="accent-purple-600"
+                />
+                Remind me if habits aren't done by
+              </label>
+              <input
+                type="time"
+                value={reminder.time}
+                onChange={(e) => setBoardConfig({ ...boardConfig, reminder: { ...reminder, time: e.target.value } })}
+                className="border border-gray-200 rounded-lg px-2 py-1 text-[11px] outline-none focus:border-purple-400"
+              />
+            </div>
+            {reminderError && <p className="text-[10px] text-red-500 mb-1">{reminderError}</p>}
+            <p className="text-[10px] text-gray-400 leading-relaxed">
+              Fires while DreamCanvas is open; on installed Android/desktop Chrome it can also fire in the background. On iPhone, install the
+              app (Share → Add to Home Screen) and open it daily for the best experience.
+            </p>
           </div>
 
           <div>

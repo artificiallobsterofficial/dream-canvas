@@ -2,7 +2,8 @@ import { X, Trash2, RotateCw } from "lucide-react";
 import { TEXT_COLORS, NOTE_COLORS, TRACKER_COLORS, TRACKER_MARKERS, FONT_OPTIONS } from "../constants/colors";
 
 const PropertiesPanel = ({ item, onUpdate, onClose }) => (
-  <div className="absolute top-3 right-12 w-56 bg-white/95 backdrop-blur rounded-xl shadow-xl border border-gray-200 p-3 z-30 max-h-[85vh] overflow-y-auto">
+  // Desktop: floating panel top-right. Small screens: bottom sheet.
+  <div className="fixed inset-x-0 bottom-0 w-full rounded-t-2xl max-h-[45vh] pb-[env(safe-area-inset-bottom)] md:absolute md:top-3 md:right-12 md:bottom-auto md:inset-x-auto md:w-56 md:rounded-xl md:max-h-[85vh] bg-white/95 backdrop-blur shadow-xl border border-gray-200 p-3 z-40 overflow-y-auto">
     <div className="flex justify-between items-center mb-2">
       <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Edit {item.type}</span>
       <button onClick={onClose} className="text-gray-400 hover:text-gray-600">

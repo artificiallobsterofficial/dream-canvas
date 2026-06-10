@@ -1,5 +1,6 @@
 const KEY = "vision_board_v3_5_db";
 const DB_NAME = "dreamcanvas_backups";
+const DB_VERSION = 2; // v2 adds the "meta" store (reminder mirror for the SW)
 const STORE = "snapshots";
 const MAX_SNAPSHOTS = 20;
 
@@ -29,11 +30,14 @@ export const StorageService = {
 
 const openDb = () =>
   new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) {
         db.createObjectStore(STORE, { keyPath: "id", autoIncrement: true });
+      }
+      if (!db.objectStoreNames.contains("meta")) {
+        db.createObjectStore("meta", { keyPath: "id" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -112,6 +116,57 @@ export const SnapshotService = {
       return snap?.data ?? null;
     } catch {
       return null;
+    }
+  },
+};
+
+// Small key-value records shared with the service worker (which cannot read
+// localStorage). Currently holds the reminder mirror.
+export const MetaService = {
+  async set(id, value) {
+    try {
+      const db = await openDb();
+      await new Promise((resolve, reject) => {
+        const t = db.transaction("meta", "readwrite");
+        t.objectStore("meta").put({ ...value, id });
+        t.oncomplete = resolve;
+        t.onerror = () => reject(t.error);
+      });
+      db.close();
+    } catch (e) {
+      console.error("Meta write failed:", e);
+    }
+  },
+  async get(id) {
+    try {
+      const db = await openDb();
+      const val = await new Promise((resolve, reject) => {
+        const r = db.transaction("meta", "readonly").objectStore("meta").get(id);
+        r.onsuccess = () => resolve(r.result || null);
+        r.onerror = () => reject(r.error);
+      });
+      db.close();
+      return val;
+    } catch {
+      return null;
+    }
+  },
+  // Read-merge-write in a single transaction — concurrent writers (the SW, the
+  // reminder interval, the auto-save mirror) can't clobber each other's fields.
+  async merge(id, partial) {
+    try {
+      const db = await openDb();
+      await new Promise((resolve, reject) => {
+        const t = db.transaction("meta", "readwrite");
+        const store = t.objectStore("meta");
+        const r = store.get(id);
+        r.onsuccess = () => store.put({ ...(r.result || {}), ...partial, id });
+        t.oncomplete = resolve;
+        t.onerror = () => reject(t.error);
+      });
+      db.close();
+    } catch (e) {
+      console.error("Meta merge failed:", e);
     }
   },
 };
