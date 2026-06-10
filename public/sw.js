@@ -21,6 +21,8 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin) return;
+  // The update check must always hit the network — never serve it from cache.
+  if (url.pathname.endsWith("/version.json")) return;
 
   // Navigations: network-first so deploys land immediately; cache fallback offline.
   if (e.request.mode === "navigate") {

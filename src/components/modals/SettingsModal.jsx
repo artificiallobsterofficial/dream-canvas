@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Settings, X, Trash2, History, RotateCcw, KeyRound, Bell } from "lucide-react";
+import { Settings, X, Trash2, History, RotateCcw, KeyRound, Bell, RefreshCw } from "lucide-react";
 import { COLORS } from "../../constants/colors";
 import { getAiProvider, getAiSource, getStoredKey, setStoredKey, callAI } from "../../services/ai";
 import { SnapshotService } from "../../services/storage";
@@ -15,6 +15,8 @@ const REASON_LABELS = {
 
 const SettingsModal = ({ boardConfig, setBoardConfig, onClearBoard, onRestoreSnapshot, lastExportAt, onClose }) => {
   const [snapshots, setSnapshots] = useState([]);
+  // null | "checking" | "current" | "update" | "error"
+  const [updateStatus, setUpdateStatus] = useState(null);
   const [keyInput, setKeyInput] = useState(getStoredKey());
   // null | "testing" | "ok" | "fail" | "wrong-provider"
   const [keyStatus, setKeyStatus] = useState(null);
@@ -22,6 +24,27 @@ const SettingsModal = ({ boardConfig, setBoardConfig, onClearBoard, onRestoreSna
   useEffect(() => {
     SnapshotService.list().then(setSnapshots);
   }, []);
+
+  const checkForUpdate = async () => {
+    setUpdateStatus("checking");
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}version.json?cb=${Date.now()}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(String(res.status));
+      const { version } = await res.json();
+      setUpdateStatus(version === __APP_VERSION__ ? "current" : "update");
+    } catch {
+      setUpdateStatus("error");
+    }
+  };
+
+  const applyUpdate = async () => {
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration?.();
+      await reg?.update();
+    } catch {}
+    // Navigations are network-first in the SW, so a reload fetches the new build.
+    window.location.reload();
+  };
 
   const provider = getAiProvider();
   const source = getAiSource();
@@ -190,6 +213,26 @@ const SettingsModal = ({ boardConfig, setBoardConfig, onClearBoard, onRestoreSna
                   Without a key, AI features use built-in offline responses.
                 </p>
               </>
+            )}
+          </div>
+
+          <div className="border-t border-gray-100 pt-3 flex items-center justify-between gap-2">
+            <p className="text-[10px] text-gray-400">
+              Version: <span className="font-mono text-gray-500">{__APP_VERSION__}</span>
+            </p>
+            {updateStatus === "update" ? (
+              <button onClick={applyUpdate} className="flex items-center gap-1 text-[10px] font-bold text-white bg-purple-600 hover:bg-purple-700 px-2 py-1 rounded-md">
+                <RefreshCw size={10} /> Update now
+              </button>
+            ) : (
+              <button
+                onClick={checkForUpdate}
+                disabled={updateStatus === "checking"}
+                className="flex items-center gap-1 text-[10px] font-medium text-gray-500 hover:text-purple-600 hover:bg-purple-50 px-2 py-1 rounded-md disabled:opacity-50"
+              >
+                <RefreshCw size={10} className={updateStatus === "checking" ? "animate-spin" : ""} />
+                {updateStatus === "checking" ? "Checking…" : updateStatus === "current" ? "✓ Up to date" : updateStatus === "error" ? "Couldn't check — offline?" : "Check for updates"}
+              </button>
             )}
           </div>
 
