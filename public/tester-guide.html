@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DreamCanvas — Tester Guide</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✨</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Patrick+Hand&display=swap" rel="stylesheet" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Inter", system-ui, sans-serif;
+      background: #f3f4f6;
+      background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+      background-size: 20px 20px;
+      color: #111827;
+      line-height: 1.6;
+      padding: 24px 16px 64px;
+    }
+    .wrap { max-width: 720px; margin: 0 auto; }
+    .hero {
+      background: linear-gradient(135deg, #7c3aed, #4f46e5);
+      color: white;
+      border-radius: 20px;
+      padding: 32px 28px;
+      box-shadow: 0 20px 40px -16px rgba(79, 70, 229, 0.45);
+      margin-bottom: 20px;
+    }
+    .hero h1 { font-size: 26px; font-weight: 800; margin-bottom: 8px; }
+    .hero p { font-size: 14px; opacity: 0.92; }
+    .hero .badge {
+      display: inline-block; background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.3);
+      font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+      padding: 4px 10px; border-radius: 999px; margin-bottom: 14px;
+    }
+    .card {
+      background: white; border: 1px solid #e5e7eb; border-radius: 16px;
+      padding: 22px 24px; margin-bottom: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    }
+    .card h2 { font-size: 15px; font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+    .card h2 .num {
+      background: #ede9fe; color: #7c3aed; width: 24px; height: 24px; border-radius: 999px;
+      display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0;
+    }
+    .card p, .card li { font-size: 14px; color: #374151; }
+    .card ul, .card ol { padding-left: 22px; margin-top: 6px; }
+    .card li { margin-bottom: 7px; }
+    .card li::marker { color: #7c3aed; font-weight: 700; }
+    .know { border-left: 4px solid #f59e0b; background: #fffbeb; }
+    .know h2 { color: #92400e; }
+    .know li { color: #78350f; }
+    kbd {
+      background: #f3f4f6; border: 1px solid #d1d5db; border-bottom-width: 2px; border-radius: 5px;
+      padding: 1px 6px; font-size: 12px; font-family: inherit; font-weight: 600;
+    }
+    .tip { font-size: 12.5px; color: #6b7280; background: #f9fafb; border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
+    .check { list-style: none; padding-left: 4px !important; }
+    .check li { padding-left: 26px; position: relative; }
+    .check li::before { content: "☐"; position: absolute; left: 0; color: #7c3aed; font-size: 16px; }
+    .cta {
+      display: block; text-align: center; background: linear-gradient(135deg, #7c3aed, #4f46e5);
+      color: white; text-decoration: none; font-weight: 700; font-size: 16px;
+      padding: 16px; border-radius: 14px; box-shadow: 0 12px 24px -10px rgba(79, 70, 229, 0.5);
+      transition: transform 0.15s ease;
+    }
+    .cta:hover { transform: translateY(-2px); }
+    .cta span { display: block; font-size: 11px; font-weight: 500; opacity: 0.85; margin-top: 3px; }
+    .hand { font-family: "Patrick Hand", cursive; font-size: 17px; color: #6d28d9; }
+    @media (max-width: 480px) { .hero h1 { font-size: 22px; } .card { padding: 18px; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <div class="badge">Beta Tester Guide · ~15 min + a day-2 visit</div>
+      <h1>✨ Welcome to DreamCanvas</h1>
+      <p>DreamCanvas is a digital vision board — the corkboard of goals, quotes, and habit trackers people hang at home, rebuilt as a web app. You're one of its first testers. Your job: use it like it's yours, and tell us where it shines or breaks.</p>
+    </div>
+
+    <div class="card know">
+      <h2>⚠️ Three things to know before you start</h2>
+      <ul>
+        <li><strong>Your board lives in this browser on this device.</strong> A different device, browser, or incognito window starts a fresh board — and clearing your browser data erases it. The download icon (top right) exports a backup file.</li>
+        <li><strong>The AI coach is running in offline mode</strong> for this test — it gives canned (but pleasant) responses. Judge the boards, trackers, and dashboard, not the AI's wit.</li>
+        <li><strong>Desktop is the main experience.</strong> On a phone, the app opens in Focus mode by design — canvas editing on touch is a known rough edge. Phone testers: focus on Focus mode.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2><span class="num">1</span>Build your board (~10 min)</h2>
+      <ol>
+        <li><strong>Pick a template</strong> — left toolbar → <em>Templates</em>. Choose whichever fits your life.</li>
+        <li><strong>Make it yours</strong> — drag things around, resize them (bottom-right handle), and edit the text. Click any item to open its style panel: try changing a color, a font, and the rotation slider.</li>
+        <li><strong>Add three things</strong> from the <kbd>+</kbd> menu: a <em>Habit Tracker</em> for a real habit you're working on, a <em>Sticky Note</em> with a real goal, and an image (paste a URL or upload from your device).</li>
+        <li><strong>Add stickers</strong> — decorate until it feels like yours.</li>
+        <li><strong>Mark today done</strong> on your habit tracker (click today's date → Done).</li>
+        <li><strong>Move around</strong> — drag empty canvas to pan, <kbd>Ctrl</kbd> + scroll (or the bottom-right buttons) to zoom. Try to "lose" an item far off-screen, then find it again. Could you?</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <h2><span class="num">2</span>Try the other modes (~3 min)</h2>
+      <ul>
+        <li><strong>Focus mode</strong> — toggle at the top of the header. Check off a habit, write one line in the journal, look at your XP. Is it clear what this screen is for?</li>
+        <li><strong>Zen mode</strong> — the eye icon in the top-right corner of the canvas. Just the vibes, no buttons.</li>
+        <li><strong>Backup</strong> — click the download icon in the header and confirm you got a file.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2><span class="num">3</span>Come back tomorrow (~2 min)</h2>
+      <ul class="check">
+        <li>Is your board exactly how you left it?</li>
+        <li>Mark your habit done again — after 3 days in a row you should see a 🔥 streak badge appear.</li>
+        <li>Be honest: did you <em>want</em> to come back?</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2><span class="num">4</span>Bonus missions (optional, for the thorough)</h2>
+      <ul>
+        <li>Try to break it. Paste a huge wall of text into a note. Add 30 stickers. Zoom all the way out. Spam-click things.</li>
+        <li>Export your board, clear it (trash icon), then re-import the file. Did everything come back?</li>
+        <li>Upload a large photo from your device. Did it work and look right?</li>
+        <li>Resize your browser window very narrow. Does anything look broken?</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>📝 Then tell us (the important part)</h2>
+      <p>Send your answers to whoever gave you this link — voice memo, text, whatever is easiest:</p>
+      <ol>
+        <li>What confused you, even for a second? (The #1 most useful answer.)</li>
+        <li>What broke, looked wrong, or did something you didn't expect?</li>
+        <li>What did you genuinely like?</li>
+        <li>Would you actually use this weekly? Why or why not?</li>
+        <li>What's the one missing thing that would make you use it?</li>
+      </ol>
+      <div class="tip">💡 Notes while you go beat a summary at the end — the moment something feels off, write it down.</div>
+    </div>
+
+    <a class="cta" href="./index.html">
+      Start Testing →
+      <span>opens DreamCanvas in this browser</span>
+    </a>
+
+    <p style="text-align:center; margin-top: 22px;" class="hand">thank you for testing! ✨</p>
+  </div>
+</body>
+</html>
