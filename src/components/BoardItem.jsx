@@ -1,10 +1,10 @@
-import { Maximize, X, Zap, Flame, PenLine } from "lucide-react";
+import { Maximize, X, Zap, Flame, PenLine, Settings } from "lucide-react";
 import { calculateStreak, safeContent } from "../utils/helpers";
 import TrackerCalendar from "./widgets/TrackerCalendar";
 import GoalColumns from "./widgets/GoalColumns";
 import CountdownWidget from "./widgets/CountdownWidget";
 
-const BoardItem = ({ item, isSelected, onSelect, onUpdate, onDayClick, zenMode, zoom = 1, onMagicBreakdown }) => {
+const BoardItem = ({ item, isSelected, onSelect, onUpdate, onDayClick, zenMode, zoom = 1, onMagicBreakdown, onOpenProps }) => {
   const streak = item.type === "tracker" ? calculateStreak(item.content) : 0;
   const showGlow = streak >= 3;
   const transparent = !!item.transparent;
@@ -134,6 +134,16 @@ const BoardItem = ({ item, isSelected, onSelect, onUpdate, onDayClick, zenMode, 
             }}
           >
             <X size={12} />
+          </button>
+          <button
+            className="ctrl absolute -top-2 right-8 w-6 h-6 bg-white border-2 border-purple-500 text-purple-600 rounded-full flex items-center justify-center shadow-md hover:bg-purple-50 z-50"
+            title="Edit style"
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              onOpenProps?.();
+            }}
+          >
+            <Settings size={12} />
           </button>
           {(item.type === "text" || item.type === "goals") && (
             <button

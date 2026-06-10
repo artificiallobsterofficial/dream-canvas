@@ -40,6 +40,8 @@ export default function App() {
   const [xpNotif, setXpNotif] = useState(null);
   const [items, setItems] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
+  // The edit panel opens only via an item's gear button — never on mere selection.
+  const [showProps, setShowProps] = useState(false);
   const [boardConfig, setBoardConfig] = useState({ backgroundColor: "#f3f4f6" });
   const [dragState, setDragState] = useState({ isDragging: false });
   const [viewMode, setViewMode] = useState(() => (typeof window !== "undefined" && window.innerWidth < 768 ? "focus" : "vision"));
@@ -328,6 +330,7 @@ export default function App() {
   const handlePointerDownItem = (e, item) => {
     e.stopPropagation();
     if (pinchRef.current.pinch) return; // second finger during a pinch isn't a drag
+    if (item.id !== selectedId) setShowProps(false);
     setSelectedId(item.id);
     const maxZ = Math.max(...items.map((i) => i.zIndex || 0), 0);
     setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, zIndex: maxZ + 1 } : i)));
@@ -367,6 +370,7 @@ export default function App() {
     const pr = pinchRef.current;
     if (pr.pinch || pr.pointers.size >= 2) return;
     setSelectedId(null);
+    setShowProps(false);
     setShowAddMenu(false);
     setPanState({ pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, vx: view.x, vy: view.y });
   };
@@ -717,6 +721,7 @@ export default function App() {
                       zenMode={zenMode}
                       zoom={view.zoom}
                       onMagicBreakdown={handleMagicBreakdown}
+                      onOpenProps={() => setShowProps(true)}
                     />
                   </div>
                 ))}
@@ -751,9 +756,9 @@ export default function App() {
               )}
             </div>
 
-            {/* PROPERTIES PANEL */}
-            {selectedItem && !calendarModalData && !zenMode && (
-              <PropertiesPanel item={selectedItem} onUpdate={handleUpdateItem} onClose={() => setSelectedId(null)} />
+            {/* PROPERTIES PANEL — opened via the selected item's gear button */}
+            {selectedItem && showProps && !calendarModalData && !zenMode && (
+              <PropertiesPanel item={selectedItem} onUpdate={handleUpdateItem} onClose={() => setShowProps(false)} />
             )}
 
             {/* MODALS */}
