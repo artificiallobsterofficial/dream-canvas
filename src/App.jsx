@@ -3,12 +3,13 @@ import {
   Plus, Type, Trash2, Layers, StickyNote, Sparkles, Loader2, Calendar,
   Link as LinkIcon, MessageCircle, BookOpen, ListTodo, Crown, Zap,
   LayoutTemplate, PenLine, Eye, EyeOff, Download, Upload, Settings, Smile,
-  Timer, ZoomIn, ZoomOut, Maximize2,
+  Timer, ZoomIn, ZoomOut, Maximize2, BarChart3,
 } from "lucide-react";
 
-import { generateId, normalizeDayData, safeContent, todayKey } from "./utils/helpers";
-import { StorageService } from "./services/storage";
-import { callAI } from "./services/ai";
+import { generateId, normalizeDayData, safeContent, todayKey, calculateStreak } from "./utils/helpers";
+import { StorageService, SnapshotService, requestPersistence } from "./services/storage";
+import { callAI, buildBoardContext, COACH_SYSTEM_WITH_BOARD } from "./services/ai";
+import { generateWeeklyReview } from "./services/review";
 import { LEVELS } from "./constants/levels";
 import { TEMPLATES } from "./constants/templates";
 
@@ -23,6 +24,7 @@ import LibraryModal from "./components/modals/LibraryModal";
 import ChatModal from "./components/modals/ChatModal";
 import AIModal from "./components/modals/AIModal";
 import CalendarDayModal from "./components/modals/CalendarDayModal";
+import ReviewModal from "./components/modals/ReviewModal";
 import ImageModal from "./components/modals/ImageModal";
 import ConfirmModal from "./components/modals/ConfirmModal";
 
@@ -42,6 +44,10 @@ export default function App() {
   const [zenMode, setZenMode] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [lastExportAt, setLastExportAt] = useState(null);
+  // Ledger of habit-days that already paid XP ("itemId|dateKey" -> ts).
+  // Prevents farming via done→undone→done toggles or note-edit re-saves.
+  const [awardedDays, setAwardedDays] = useState({});
 
   // Pan & zoom: world coords -> screen via translate(view.x, view.y) scale(view.zoom)
   const [view, setView] = useState({ x: 0, y: 0, zoom: 1 });
@@ -57,6 +63,9 @@ export default function App() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [calendarModalData, setCalendarModalData] = useState(null);
   const [confirmModal, setConfirmModal] = useState({ isOpen: false });
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [review, setReview] = useState(null);
+  const [isReviewLoading, setIsReviewLoading] = useState(false);
 
   // AI state
   const [aiPrompt, setAiPrompt] = useState("");
@@ -79,18 +88,26 @@ export default function App() {
       setBoardConfig(data.boardConfig || { backgroundColor: "#f3f4f6" });
       setUserXp(data.profile?.xp || 0);
       setUserLevel(data.profile?.level || 1);
+      setAwardedDays(data.profile?.awardedDays || {});
+      setLastExportAt(data.lastExportAt || null);
+      SnapshotService.take(data, "daily");
     }
+    requestPersistence();
     setLoaded(true);
   }, []);
 
   // ─ Auto-save ─
   useEffect(() => {
     if (!loaded) return;
-    StorageService.save({ profile: { xp: userXp, level: userLevel }, items, boardConfig, lastActive: Date.now() });
-  }, [items, boardConfig, userXp, userLevel, loaded]);
+    StorageService.save({ profile: { xp: userXp, level: userLevel, awardedDays }, items, boardConfig, lastExportAt, lastActive: Date.now() });
+  }, [items, boardConfig, userXp, userLevel, awardedDays, lastExportAt, loaded]);
+
+  const currentState = () => ({ profile: { xp: userXp, level: userLevel, awardedDays }, items, boardConfig, lastExportAt });
 
   // ─ XP + leveling ─
-  const addXp = (amount) => {
+  // XP is feedback on completions (habits done, streak milestones) — not a
+  // reward for adding items, which made decorating the fastest way to level.
+  const addXp = (amount, label) => {
     let newLevel = userLevel;
     for (let i = LEVELS.length - 1; i >= 0; i--) {
       if (userXp + amount >= LEVELS[i].minXp) {
@@ -99,12 +116,31 @@ export default function App() {
       }
     }
     setUserXp((prev) => prev + amount);
-    setXpNotif(`+${amount} XP`);
+    setXpNotif(label || `+${amount} XP`);
     if (newLevel > userLevel) {
       setUserLevel(newLevel);
       setXpNotif(`🎉 LEVEL UP! ${LEVELS.find((l) => l.level === newLevel).title}!`);
     }
     setTimeout(() => setXpNotif(null), 2500);
+  };
+
+  // Completion credit for marking a habit done, including streak milestones.
+  // Each habit-day pays out at most once, ever — re-marking an unmarked day,
+  // or editing its note, never re-awards.
+  const awardHabitDone = (itemId, dateKey, newContent) => {
+    const ledgerKey = `${itemId}|${dateKey}`;
+    if (awardedDays[ledgerKey]) return;
+    setAwardedDays((prev) => {
+      const next = { ...prev, [ledgerKey]: Date.now() };
+      // Keep the ledger bounded: drop entries older than 90 days.
+      const cutoff = Date.now() - 90 * 86400000;
+      for (const k of Object.keys(next)) if (next[k] < cutoff) delete next[k];
+      return next;
+    });
+    const streak = calculateStreak(newContent);
+    if (streak === 7) addXp(70, "🔥 7-day streak! +70 XP");
+    else if (streak === 30) addXp(220, "🏆 30-day habit! +220 XP");
+    else addXp(20, "✓ Habit done +20 XP");
   };
 
   // ─ Item drag + canvas pan (window-level pointer listeners) ─
@@ -190,7 +226,6 @@ export default function App() {
     };
     setItems((prev) => [...prev, newItem]);
     setSelectedId(newItem.id);
-    addXp(10);
     setShowAddMenu(false);
     return newItem;
   };
@@ -211,11 +246,14 @@ export default function App() {
     try {
       td = JSON.parse(item.content || "{}");
     } catch {}
+    const prevStatus = normalizeDayData(td[dateKey]).status;
     if (!newData.status && !newData.event) delete td[dateKey];
     else td[dateKey] = newData;
-    if (newData.status === "done") addXp(20);
-    else if (newData.status === "planned") addXp(5);
-    handleUpdateItem(itemId, { content: JSON.stringify(td) });
+    const newContent = JSON.stringify(td);
+    // Award only on a real status transition — note edits re-fire this handler.
+    if (newData.status === "done" && prevStatus !== "done") awardHabitDone(itemId, dateKey, newContent);
+    else if (newData.status === "planned" && prevStatus !== "planned") addXp(5, "📅 Planned +5 XP");
+    handleUpdateItem(itemId, { content: newContent });
   };
 
   const handlePointerDownItem = (e, item) => {
@@ -238,8 +276,9 @@ export default function App() {
   const requestClearBoard = () => {
     setConfirmModal({
       isOpen: true,
-      message: "Clear your entire vision board? This cannot be undone.",
+      message: "Clear your entire vision board? A backup snapshot will be kept in Settings → Backups.",
       onConfirm: () => {
+        SnapshotService.take(currentState(), "before-clear");
         setItems([]);
         setBoardConfig({ backgroundColor: "#f3f4f6" });
         setConfirmModal({ isOpen: false });
@@ -249,12 +288,12 @@ export default function App() {
 
   const applyTemplate = (key) => {
     const apply = () => {
+      SnapshotService.take(currentState(), "before-template");
       const tpl = TEMPLATES[key];
       setItems(tpl.items.map((i) => ({ ...i, id: generateId() })));
       setBoardConfig(tpl.config);
       setShowTemplateModal(false);
       resetView();
-      addXp(50);
       setConfirmModal({ isOpen: false });
     };
     if (items.length > 0) setConfirmModal({ isOpen: true, message: "This will replace your current board. Continue?", onConfirm: apply });
@@ -270,6 +309,28 @@ export default function App() {
     a.download = `dreamcanvas_${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
+    setLastExportAt(Date.now());
+  };
+
+  const handleRestoreSnapshot = async (id) => {
+    const data = await SnapshotService.get(id);
+    if (!data) return;
+    setConfirmModal({
+      isOpen: true,
+      message: "Restore this backup? Your current board will be replaced (a snapshot of it is kept first).",
+      onConfirm: () => {
+        SnapshotService.take(currentState(), "before-restore");
+        setItems(data.items || []);
+        setBoardConfig(data.boardConfig || { backgroundColor: "#f3f4f6" });
+        if (data.profile) {
+          setUserXp(data.profile.xp || 0);
+          setUserLevel(data.profile.level || 1);
+        }
+        resetView();
+        setShowSettingsModal(false);
+        setConfirmModal({ isOpen: false });
+      },
+    });
   };
 
   const handleImportFile = (file) => {
@@ -280,6 +341,7 @@ export default function App() {
         const data = JSON.parse(reader.result);
         if (!Array.isArray(data.items)) throw new Error("no items array");
         const restore = () => {
+          SnapshotService.take(currentState(), "before-import");
           setItems(data.items);
           setBoardConfig(data.boardConfig || { backgroundColor: "#f3f4f6" });
           if (data.profile) {
@@ -332,11 +394,10 @@ export default function App() {
     setIsChatLoading(true);
     const aiText = await callAI(
       newHistory.map((m) => `${m.role === "user" ? "User" : "Coach"}: ${m.text}`).join("\n") + "\nCoach:",
-      "You are a warm, aesthetic-focused Vision Board Coach. Help with goals, visualization, affirmations. Keep responses under 120 words. Be encouraging and specific."
+      COACH_SYSTEM_WITH_BOARD(buildBoardContext(items, { xp: userXp, level: userLevel }))
     );
     if (aiText) {
       setChatHistory((prev) => [...prev, { role: "assistant", text: aiText }]);
-      addXp(5);
     } else {
       setChatHistory((prev) => [
         ...prev,
@@ -357,6 +418,14 @@ export default function App() {
     addItem("note", `Steps for ${content.slice(0, 30)}…\n\n${steps}`, { x: item.x + 40, y: item.y + 40, backgroundColor: "#dbeafe" });
   };
 
+  const handleOpenReview = async () => {
+    setShowReviewModal(true);
+    setIsReviewLoading(true);
+    const r = await generateWeeklyReview(items, { xp: userXp, level: userLevel });
+    setReview(r);
+    setIsReviewLoading(false);
+  };
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory, isChatLoading]);
@@ -373,6 +442,8 @@ export default function App() {
       }
     }, 0) / (trackers.length || 1);
   const boardBrightness = 0.92 + completionRate * 0.15;
+
+  const backupOverdue = items.length >= 8 && (!lastExportAt || Date.now() - lastExportAt > 7 * 86400000);
 
   const currentLevelInfo = LEVELS.find((l) => l.level === userLevel) || LEVELS[0];
   const nextLevelInfo = LEVELS.find((l) => l.level === userLevel + 1);
@@ -432,8 +503,13 @@ export default function App() {
           <button onClick={() => importRef.current?.click()} className="p-1.5 text-gray-400 hover:text-emerald-500 hover:bg-emerald-50 rounded-lg" title="Import board (JSON)">
             <Upload size={16} />
           </button>
-          <button onClick={handleExport} className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg" title="Export board (JSON)">
+          <button
+            onClick={handleExport}
+            className="relative p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg"
+            title={backupOverdue ? "It's been a while — export a backup of your board" : "Export board (JSON)"}
+          >
             <Download size={16} />
+            {backupOverdue && <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-amber-400 rounded-full" />}
           </button>
           <button onClick={requestClearBoard} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg" title="Clear">
             <Trash2 size={16} />
@@ -465,7 +541,7 @@ export default function App() {
         )}
 
         {viewMode === "focus" ? (
-          <FocusDashboard items={items} userLevel={userLevel} userXp={userXp} onUpdateItem={handleUpdateItem} onAddXp={addXp} levels={LEVELS} />
+          <FocusDashboard items={items} userLevel={userLevel} userXp={userXp} onUpdateItem={handleUpdateItem} onHabitDone={awardHabitDone} levels={LEVELS} />
         ) : (
           <>
             {/* TOOLBAR */}
@@ -509,6 +585,7 @@ export default function App() {
               <ToolbarButton icon={LayoutTemplate} label="Templates" onClick={() => setShowTemplateModal(true)} />
               <ToolbarButton icon={Sparkles} label="AI" onClick={() => { setShowAIModal(true); setAiPrompt(""); setAiResults(null); }} />
               <ToolbarButton icon={MessageCircle} label="Coach" onClick={() => setShowChatModal(true)} />
+              <ToolbarButton icon={BarChart3} label="Review" onClick={handleOpenReview} />
               <ToolbarButton icon={Smile} label="Stickers" onClick={() => setShowStickerModal(true)} />
               <ToolbarButton icon={BookOpen} label="Library" onClick={() => setShowLibraryModal(true)} />
               <div className="w-8 h-px bg-gray-200 my-1" />
@@ -586,6 +663,8 @@ export default function App() {
                 boardConfig={boardConfig}
                 setBoardConfig={setBoardConfig}
                 onClearBoard={() => { requestClearBoard(); setShowSettingsModal(false); }}
+                onRestoreSnapshot={handleRestoreSnapshot}
+                lastExportAt={lastExportAt}
                 onClose={() => setShowSettingsModal(false)}
               />
             )}
@@ -648,6 +727,18 @@ export default function App() {
                 onReset={() => setChatHistory([DEFAULT_GREETING])}
                 onClose={() => setShowChatModal(false)}
                 chatEndRef={chatEndRef}
+              />
+            )}
+            {showReviewModal && (
+              <ReviewModal
+                review={review}
+                isLoading={isReviewLoading}
+                onAddToBoard={() => {
+                  if (review?.text) addItem("note", review.text, { backgroundColor: "#dcfce7", width: 280, height: 320 });
+                  setShowReviewModal(false);
+                }}
+                onRegenerate={handleOpenReview}
+                onClose={() => setShowReviewModal(false)}
               />
             )}
             {showAIModal && (

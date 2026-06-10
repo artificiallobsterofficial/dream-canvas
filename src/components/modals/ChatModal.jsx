@@ -1,9 +1,11 @@
 import { Bot, X, RefreshCw, Send, User, Lightbulb } from "lucide-react";
 import FormatMessage from "../FormatMessage";
 import { SUGGESTED_PROMPTS } from "../../constants/library";
-import { aiProvider } from "../../services/ai";
+import { getAiProvider } from "../../services/ai";
 
-const ChatModal = ({ chatHistory, chatInput, setChatInput, isChatLoading, onSend, onReset, onClose, chatEndRef }) => (
+const ChatModal = ({ chatHistory, chatInput, setChatInput, isChatLoading, onSend, onReset, onClose, chatEndRef }) => {
+  const aiProvider = getAiProvider();
+  return (
   <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
     <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col h-[550px] max-h-[88vh]">
       <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-3 text-white flex justify-between items-center shadow-md">
@@ -101,6 +103,7 @@ const ChatModal = ({ chatHistory, chatInput, setChatInput, isChatLoading, onSend
       </div>
     </div>
   </div>
-);
+  );
+};
 
 export default ChatModal;

@@ -64,6 +64,26 @@ export const isFreezeActive = (content) => {
   return !doneOn(1) && doneOn(2) && calculateStreak(content) >= 1;
 };
 
+// True if any tracker ever had a done→miss→done pattern in the last 60 days,
+// i.e. a streak freeze was actually used at some point.
+export const hasEverUsedFreeze = (content) => {
+  let td = {};
+  try {
+    td = JSON.parse(safeContent(content) || "{}");
+  } catch {
+    return false;
+  }
+  const doneOn = (offset) => {
+    const d = new Date();
+    d.setDate(d.getDate() - offset);
+    return normalizeDayData(td[todayKey(d)]).status === "done";
+  };
+  for (let i = 0; i < 58; i++) {
+    if (doneOn(i) && !doneOn(i + 1) && doneOn(i + 2)) return true;
+  }
+  return false;
+};
+
 // Downscale an image file to keep localStorage usage manageable.
 // Returns a Promise<string> resolving to a data URL.
 export const fileToDataUrl = (file, maxDim = 1200) =>

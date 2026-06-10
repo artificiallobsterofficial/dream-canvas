@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { Zap, StickyNote, Activity, CheckCircle2, ListTodo, PenLine, Trophy, Lock, Shield } from "lucide-react";
+import { Zap, StickyNote, Activity, CheckCircle2, ListTodo, PenLine, Shield } from "lucide-react";
 import { normalizeDayData, safeContent, todayKey, calculateStreak, isFreezeActive } from "../utils/helpers";
+import { ACHIEVEMENTS } from "../constants/achievements";
 
-const FocusDashboard = ({ items, userLevel, userXp, onUpdateItem, onAddXp, levels }) => {
+const FocusDashboard = ({ items, userLevel, userXp, onUpdateItem, onHabitDone, levels }) => {
   const [today, setToday] = useState("");
   const [currentQuote, setCurrentQuote] = useState("");
   const [quickNote, setQuickNote] = useState("");
@@ -37,12 +38,15 @@ const FocusDashboard = ({ items, userLevel, userXp, onUpdateItem, onAddXp, level
       td = JSON.parse(safeContent(item.content) || "{}");
     } catch {}
     const newData = { ...td };
+    let completed = false;
     if (newData[today]?.status === "done") delete newData[today];
     else {
       newData[today] = { status: "done", event: "" };
-      onAddXp(20);
+      completed = true;
     }
-    onUpdateItem(item.id, { content: JSON.stringify(newData) });
+    const newContent = JSON.stringify(newData);
+    if (completed) onHabitDone(item.id, today, newContent);
+    onUpdateItem(item.id, { content: newContent });
   };
 
   const habits = items.filter((i) => i.type === "tracker");
@@ -205,12 +209,24 @@ const FocusDashboard = ({ items, userLevel, userXp, onUpdateItem, onAddXp, level
           <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
             <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-3">Achievements</h4>
             <div className="grid grid-cols-4 gap-1.5">
-              {[...Array(8)].map((_, i) => (
-                <div key={i} className={`aspect-square rounded-full flex items-center justify-center ${i < userLevel ? "bg-indigo-100 text-indigo-600" : "bg-gray-100 text-gray-300"}`}>
-                  {i < userLevel ? <Trophy size={14} /> : <Lock size={12} />}
-                </div>
-              ))}
+              {ACHIEVEMENTS.map((a) => {
+                const unlocked = a.test(items);
+                return (
+                  <div
+                    key={a.id}
+                    title={`${a.title} — ${a.desc}`}
+                    className={`aspect-square rounded-xl flex items-center justify-center text-lg transition-all ${
+                      unlocked ? "bg-indigo-50 border border-indigo-100" : "bg-gray-50 border border-gray-100 grayscale opacity-40"
+                    }`}
+                  >
+                    {a.icon}
+                  </div>
+                );
+              })}
             </div>
+            <p className="text-[10px] text-gray-400 mt-2 leading-relaxed">
+              {ACHIEVEMENTS.filter((a) => a.test(items)).length}/{ACHIEVEMENTS.length} unlocked — hover to see how
+            </p>
           </div>
         </div>
       </div>

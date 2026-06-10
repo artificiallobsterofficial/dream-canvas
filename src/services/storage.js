@@ -1,4 +1,7 @@
 const KEY = "vision_board_v3_5_db";
+const DB_NAME = "dreamcanvas_backups";
+const STORE = "snapshots";
+const MAX_SNAPSHOTS = 20;
 
 export const StorageService = {
   save(data) {
@@ -18,4 +21,110 @@ export const StorageService = {
       return null;
     }
   },
+};
+
+// ─── Snapshot layer (IndexedDB) ───
+// Rolling backups that survive accidental clears of the main board state.
+// Snapshots are taken daily and before destructive operations.
+
+const openDb = () =>
+  new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE)) {
+        db.createObjectStore(STORE, { keyPath: "id", autoIncrement: true });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+
+const tx = (db, mode, fn) =>
+  new Promise((resolve, reject) => {
+    const t = db.transaction(STORE, mode);
+    const store = t.objectStore(STORE);
+    const out = fn(store);
+    t.oncomplete = () => resolve(out?.result !== undefined ? out.result : undefined);
+    t.onerror = () => reject(t.error);
+  });
+
+export const SnapshotService = {
+  // reason: "daily" | "before-clear" | "before-import" | "before-template"
+  async take(data, reason) {
+    try {
+      if (!data?.items?.length) return; // nothing worth backing up
+      const db = await openDb();
+      const all = await new Promise((res, rej) => {
+        const r = db.transaction(STORE, "readonly").objectStore(STORE).getAll();
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
+      // At most one daily snapshot per calendar day.
+      if (reason === "daily") {
+        const today = new Date().toDateString();
+        if (all.some((s) => s.reason === "daily" && new Date(s.ts).toDateString() === today)) {
+          db.close();
+          return;
+        }
+      }
+      await tx(db, "readwrite", (store) => {
+        store.add({ ts: Date.now(), reason, itemCount: data.items.length, data });
+        // Prune oldest beyond the cap (all is pre-add, so allow MAX-1 existing).
+        const excess = all.length - (MAX_SNAPSHOTS - 1);
+        if (excess > 0) {
+          all
+            .sort((a, b) => a.ts - b.ts)
+            .slice(0, excess)
+            .forEach((s) => store.delete(s.id));
+        }
+      });
+      db.close();
+    } catch (e) {
+      console.error("Snapshot failed:", e);
+    }
+  },
+
+  async list() {
+    try {
+      const db = await openDb();
+      const all = await new Promise((res, rej) => {
+        const r = db.transaction(STORE, "readonly").objectStore(STORE).getAll();
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
+      db.close();
+      return all.sort((a, b) => b.ts - a.ts).map(({ id, ts, reason, itemCount }) => ({ id, ts, reason, itemCount }));
+    } catch {
+      return [];
+    }
+  },
+
+  async get(id) {
+    try {
+      const db = await openDb();
+      const snap = await new Promise((res, rej) => {
+        const r = db.transaction(STORE, "readonly").objectStore(STORE).get(id);
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
+      db.close();
+      return snap?.data ?? null;
+    } catch {
+      return null;
+    }
+  },
+};
+
+// Ask the browser not to evict our storage under pressure. Best-effort:
+// Chrome grants based on engagement, Safari/Firefox may prompt or ignore.
+export const requestPersistence = async () => {
+  try {
+    if (navigator.storage?.persist) {
+      const already = await navigator.storage.persisted();
+      if (!already) await navigator.storage.persist();
+    }
+  } catch {
+    /* non-fatal */
+  }
 };
