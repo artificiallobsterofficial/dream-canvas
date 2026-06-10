@@ -3,7 +3,7 @@ import {
   Plus, Type, Trash2, Layers, StickyNote, Sparkles, Loader2, Calendar,
   Link as LinkIcon, MessageCircle, BookOpen, ListTodo, Crown, Zap,
   LayoutTemplate, PenLine, Eye, EyeOff, Download, Upload, Settings, Smile,
-  Timer, ZoomIn, ZoomOut, Maximize2, BarChart3,
+  Timer, ZoomIn, ZoomOut, BarChart3, LocateFixed,
 } from "lucide-react";
 
 import { generateId, normalizeDayData, safeContent, todayKey, calculateStreak } from "./utils/helpers";
@@ -248,6 +248,30 @@ export default function App() {
     applyZoom(factor, br ? br.width / 2 : 400, br ? br.height / 2 : 300);
   };
   const resetView = () => setView({ x: 0, y: 0, zoom: 1 });
+
+  // "Find my board": fit every item into the viewport. The rescue hatch for
+  // an infinite canvas — works no matter how lost the view is.
+  const fitView = () => {
+    const br = boardRef.current?.getBoundingClientRect();
+    if (!br || items.length === 0) {
+      resetView();
+      return;
+    }
+    const minX = Math.min(...items.map((i) => i.x));
+    const minY = Math.min(...items.map((i) => i.y));
+    const maxX = Math.max(...items.map((i) => i.x + i.width));
+    const maxY = Math.max(...items.map((i) => i.y + i.height));
+    const pad = 60;
+    const zoom = Math.min(
+      1.25, // don't blow a tiny board up past readable scale
+      Math.max(MIN_ZOOM, Math.min(br.width / (maxX - minX + pad * 2), br.height / (maxY - minY + pad * 2)))
+    );
+    setView({
+      zoom,
+      x: br.width / 2 - ((minX + maxX) / 2) * zoom,
+      y: br.height / 2 - ((minY + maxY) / 2) * zoom,
+    });
+  };
 
   // ─ Add item (centered in the current viewport, in world coords) ─
   const addItem = (type, content = "", extraProps = {}) => {
@@ -710,18 +734,18 @@ export default function App() {
               {/* Zoom controls */}
               {!zenMode && (
                 <div className="absolute bottom-3 right-3 z-30 flex items-center gap-1 bg-white/90 backdrop-blur rounded-full shadow-lg border border-gray-200 px-1.5 py-1">
-                  <button onClick={() => zoomAtCenter(1 / 1.2)} className="p-1 text-gray-500 hover:text-purple-600 rounded-full hover:bg-purple-50" title="Zoom out">
+                  <button onClick={() => zoomAtCenter(1 / 1.2)} className="p-1.5 text-gray-500 hover:text-purple-600 rounded-full hover:bg-purple-50" title="Zoom out">
                     <ZoomOut size={15} />
                   </button>
-                  <button onClick={resetView} className="text-[10px] font-bold text-gray-600 w-10 text-center hover:text-purple-600" title="Reset view">
+                  <button onClick={resetView} className="text-[10px] font-bold text-gray-600 w-10 py-1 text-center hover:text-purple-600" title="Reset to 100%">
                     {Math.round(view.zoom * 100)}%
                   </button>
-                  <button onClick={() => zoomAtCenter(1.2)} className="p-1 text-gray-500 hover:text-purple-600 rounded-full hover:bg-purple-50" title="Zoom in">
+                  <button onClick={() => zoomAtCenter(1.2)} className="p-1.5 text-gray-500 hover:text-purple-600 rounded-full hover:bg-purple-50" title="Zoom in">
                     <ZoomIn size={15} />
                   </button>
                   <div className="w-px h-4 bg-gray-200 mx-0.5" />
-                  <button onClick={resetView} className="p-1 text-gray-500 hover:text-purple-600 rounded-full hover:bg-purple-50" title="Reset view">
-                    <Maximize2 size={13} />
+                  <button onClick={fitView} className="p-1.5 bg-purple-600 text-white rounded-full hover:bg-purple-700 shadow-sm" title="Fit board into view">
+                    <LocateFixed size={14} />
                   </button>
                 </div>
               )}

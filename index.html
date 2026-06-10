@@ -3,7 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✨</text></svg>" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- Page zoom is disabled because the canvas provides its own pinch zoom and a
+         page-zoomed state is unrecoverable over a touch-action:none canvas.
+         OS-level accessibility zoom (iOS Zoom, Android Magnification) is unaffected. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>DreamCanvas — Vision Board</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <meta name="theme-color" content="#7c3aed" />
