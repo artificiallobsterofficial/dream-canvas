@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Plus, Type, Trash2, Layers, StickyNote, Sparkles, Loader2, Calendar,
   Link as LinkIcon, MessageCircle, BookOpen, ListTodo, Crown, Zap,
@@ -87,6 +87,27 @@ export default function App() {
   const importRef = useRef(null);
 
   const selectedItem = items.find((i) => i.id === selectedId);
+
+  // "Home zone": a soft, decorative frame in world space that hugs your content and grows as the
+  // board fills in (more items) and as you level up (bigger minimum footprint). Purely cosmetic —
+  // the canvas stays infinite, you can always pan past it — but it gives the empty plane a sense of
+  // "this is your space" and a gentle progression cue instead of reading as a cold endless void.
+  const homeZone = useMemo(() => {
+    if (items.length === 0) return null;
+    const minX = Math.min(...items.map((i) => i.x));
+    const minY = Math.min(...items.map((i) => i.y));
+    const maxX = Math.max(...items.map((i) => i.x + i.width));
+    const maxY = Math.max(...items.map((i) => i.y + i.height));
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const pad = 140;
+    // Minimum footprint expands with level — your space literally grows as you grow.
+    const minW = 900 + (userLevel - 1) * 160;
+    const minH = 620 + (userLevel - 1) * 110;
+    const w = Math.max(maxX - minX + pad * 2, minW);
+    const h = Math.max(maxY - minY + pad * 2, minH);
+    return { x: cx - w / 2, y: cy - h / 2, w, h };
+  }, [items, userLevel]);
 
   // ─ Load on mount ─
   useEffect(() => {
@@ -274,6 +295,16 @@ export default function App() {
       y: br.height / 2 - ((minY + maxY) / 2) * zoom,
     });
   };
+
+  // Cozy first frame: when the app opens onto a board that already has content, fit it into view
+  // instead of dropping the user onto an empty, too-wide expanse. Runs once after load.
+  const didInitialFrame = useRef(false);
+  useEffect(() => {
+    if (!loaded || didInitialFrame.current) return;
+    didInitialFrame.current = true;
+    if (items.length > 0) requestAnimationFrame(() => fitView());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
 
   // ─ Add item (centered in the current viewport, in world coords) ─
   const addItem = (type, content = "", extraProps = {}) => {
@@ -701,15 +732,37 @@ export default function App() {
               className={`flex-1 relative overflow-hidden ${panState ? "cursor-grabbing" : "cursor-grab"} transition-colors`}
               style={{
                 backgroundColor: boardConfig.backgroundColor,
-                backgroundImage: "radial-gradient(#cbd5e1 1px, transparent 1px)",
-                backgroundSize: `${20 * view.zoom}px ${20 * view.zoom}px`,
-                backgroundPosition: `${view.x}px ${view.y}px`,
                 touchAction: "none",
                 filter: `brightness(${boardBrightness})`,
               }}
               onPointerDown={handleBoardPointerDown}
             >
+              {/* Dot grid as its own layer so it can fade toward the edges — keeps the infinite
+                  canvas from reading as a cold endless void while still scrolling with the view. */}
+              <div
+                className="absolute inset-0 pointer-events-none"
+                style={{
+                  backgroundImage: "radial-gradient(#cbd5e1 1px, transparent 1px)",
+                  backgroundSize: `${20 * view.zoom}px ${20 * view.zoom}px`,
+                  backgroundPosition: `${view.x}px ${view.y}px`,
+                  WebkitMaskImage: "radial-gradient(ellipse 78% 78% at 50% 45%, #000 50%, transparent 100%)",
+                  maskImage: "radial-gradient(ellipse 78% 78% at 50% 45%, #000 50%, transparent 100%)",
+                }}
+              />
               <div className="absolute top-0 left-0" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`, transformOrigin: "0 0" }}>
+                {homeZone && (
+                  <div
+                    className="absolute rounded-[2rem] pointer-events-none transition-all duration-500 ease-out"
+                    style={{
+                      left: homeZone.x,
+                      top: homeZone.y,
+                      width: homeZone.w,
+                      height: homeZone.h,
+                      border: "2px dashed rgba(148,163,184,0.35)",
+                      background: "radial-gradient(ellipse at center, rgba(255,255,255,0.45), rgba(255,255,255,0) 70%)",
+                    }}
+                  />
+                )}
                 {items.map((item) => (
                   <div key={item.id} className="board-item contents">
                     <BoardItem

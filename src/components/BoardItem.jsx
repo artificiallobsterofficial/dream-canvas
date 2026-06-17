@@ -7,7 +7,9 @@ import CountdownWidget from "./widgets/CountdownWidget";
 const BoardItem = ({ item, isSelected, onSelect, onUpdate, onDayClick, zenMode, zoom = 1, onMagicBreakdown, onOpenProps }) => {
   const streak = item.type === "tracker" ? calculateStreak(item.content) : 0;
   const showGlow = streak >= 3;
-  const transparent = !!item.transparent;
+  const isSticker = item.type === "sticker";
+  // Stickers are bare emoji — never give them the default white card wrapper.
+  const transparent = !!item.transparent || isSticker;
 
   const handleResizeStart = (e) => {
     e.stopPropagation();

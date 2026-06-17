@@ -44,6 +44,7 @@ const TrackerCalendar = ({ item, zenMode, onUpdate, onDayClick }) => {
     const dayData = normalizeDayData(trackedDates[dateKey]);
     const isDone = dayData.status === "done";
     const isPlanned = dayData.status === "planned";
+    const hasNote = !!(dayData.event && dayData.event.trim());
     days.push(
       <div
         key={d}
@@ -51,7 +52,7 @@ const TrackerCalendar = ({ item, zenMode, onUpdate, onDayClick }) => {
           e.stopPropagation();
           handleDayClick(d);
         }}
-        className={`h-7 w-7 flex items-center justify-center rounded-full text-xs transition-all select-none ${!zenMode && "cursor-pointer"} ${
+        className={`relative h-7 w-7 flex items-center justify-center rounded-full text-xs transition-all select-none ${!zenMode && "cursor-pointer"} ${
           isDone ? "font-bold text-white shadow-sm" : isPlanned ? "font-medium" : !zenMode ? "hover:bg-gray-100 text-gray-500" : "text-gray-500"
         }`}
         style={{
@@ -59,8 +60,15 @@ const TrackerCalendar = ({ item, zenMode, onUpdate, onDayClick }) => {
           color: isDone ? (marker === "check" ? "white" : "inherit") : isPlanned ? themeColor : "inherit",
           border: isDone && marker !== "check" ? `1px solid ${themeColor}` : isPlanned ? `1px dashed ${themeColor}` : "none",
         }}
+        title={hasNote ? dayData.event : undefined}
       >
         {isDone || isPlanned ? getMarkerIcon() : d}
+        {hasNote && (
+          <span
+            className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full pointer-events-none"
+            style={{ backgroundColor: isDone && marker === "check" ? "rgba(255,255,255,0.9)" : themeColor }}
+          />
+        )}
       </div>
     );
   }
