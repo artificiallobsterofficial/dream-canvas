@@ -55,13 +55,13 @@ const InstallPrompt = () => {
 
   return (
     <div className="fixed bottom-16 left-1/2 -translate-x-1/2 z-[70] w-[92%] max-w-sm">
-      <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 p-3.5">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-slate-700 p-3.5">
         {!iosHelp ? (
           <div className="flex items-center gap-3">
             <img src={`${import.meta.env.BASE_URL}icons/icon-192.png`} alt="" className="w-10 h-10 rounded-xl flex-none" />
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold text-gray-900">Install DreamCanvas</p>
-              <p className="text-[11px] text-gray-500 leading-snug">Works offline, opens like an app — and habit reminders work best installed.</p>
+              <p className="text-xs font-bold text-gray-900 dark:text-slate-100">Install DreamCanvas</p>
+              <p className="text-[11px] text-gray-500 dark:text-slate-400 leading-snug">Works offline, opens like an app — and habit reminders work best installed.</p>
             </div>
             <button onClick={install} className="flex-none bg-purple-600 text-white text-[11px] font-bold px-3 py-2 rounded-lg hover:bg-purple-700 flex items-center gap-1">
               <Download size={12} /> {deferred ? "Install" : "How"}
@@ -73,12 +73,12 @@ const InstallPrompt = () => {
         ) : (
           <div>
             <div className="flex justify-between items-center mb-1.5">
-              <p className="text-xs font-bold text-gray-900">Add to your Home Screen</p>
+              <p className="text-xs font-bold text-gray-900 dark:text-slate-100">Add to your Home Screen</p>
               <button onClick={dismiss} className="text-gray-300 hover:text-gray-500 p-1" aria-label="Dismiss">
                 <X size={15} />
               </button>
             </div>
-            <ol className="text-[11px] text-gray-600 space-y-1 list-decimal pl-4">
+            <ol className="text-[11px] text-gray-600 dark:text-slate-300 space-y-1 list-decimal pl-4">
               <li className="leading-snug">
                 Tap the <Share size={11} className="inline -mt-0.5 text-blue-500" /> <span className="font-medium">Share</span> button in Safari's toolbar
               </li>

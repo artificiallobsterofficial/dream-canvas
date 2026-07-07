@@ -11,7 +11,7 @@ const TEMPLATE_STYLES = {
 
 const TemplateModal = ({ onApply, onClose }) => (
   <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[85vh]">
+    <div className="bg-white dark:bg-slate-900 dark:border dark:border-slate-700 rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[85vh]">
       <div className="bg-gradient-to-r from-violet-600 to-indigo-600 p-4 text-white flex justify-between items-center">
         <div className="flex items-center gap-2">
           <LayoutTemplate size={20} />
@@ -21,7 +21,7 @@ const TemplateModal = ({ onApply, onClose }) => (
           <X size={18} />
         </button>
       </div>
-      <div className="p-6 grid md:grid-cols-3 gap-4 overflow-y-auto bg-gray-50/50">
+      <div className="p-6 grid md:grid-cols-3 gap-4 overflow-y-auto bg-gray-50/50 dark:bg-slate-950/50">
         {Object.entries(TEMPLATES).map(([key, tpl]) => {
           const style = TEMPLATE_STYLES[key];
           const Icon = style.icon;
@@ -29,14 +29,14 @@ const TemplateModal = ({ onApply, onClose }) => (
             <button
               key={key}
               onClick={() => onApply(key)}
-              className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm hover:shadow-lg hover:border-violet-300 transition-all text-left group"
+              className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm hover:shadow-lg hover:border-violet-300 dark:hover:border-violet-500 transition-all text-left group"
             >
               <div className={`w-10 h-10 rounded-full mb-3 flex items-center justify-center text-white shadow-md ${style.bg}`}>
                 <Icon size={18} />
               </div>
-              <h4 className="font-bold text-gray-900 mb-1">{tpl.name}</h4>
-              <p className="text-xs text-gray-500 mb-3">Pre-configured trackers, quotes & goals.</p>
-              <div className="text-violet-600 text-xs font-bold flex items-center gap-0.5 group-hover:translate-x-1 transition-transform">
+              <h4 className="font-bold text-gray-900 dark:text-slate-100 mb-1">{tpl.name}</h4>
+              <p className="text-xs text-gray-500 dark:text-slate-400 mb-3">Pre-configured trackers, quotes & goals.</p>
+              <div className="text-violet-600 dark:text-violet-400 text-xs font-bold flex items-center gap-0.5 group-hover:translate-x-1 transition-transform">
                 Use <ChevronRight size={12} />
               </div>
             </button>

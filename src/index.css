@@ -14,6 +14,75 @@ body {
   overscroll-behavior: none;
 }
 
+/* ── Styled form controls (checkbox / range / date / time) ──
+   Shared classes so native inputs match the frosted purple aesthetic in both themes. */
+@layer components {
+  /* Checkbox */
+  .dc-check {
+    @apply appearance-none w-4 h-4 flex-none rounded border border-gray-300 bg-white cursor-pointer transition-colors
+      checked:bg-purple-600 checked:border-purple-600 hover:border-purple-400
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500/40
+      dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-purple-500 dark:checked:border-purple-500;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: 0.7rem;
+  }
+  .dc-check:checked {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8.5l3.5 3.5L13 4.5'/%3E%3C/svg%3E");
+  }
+
+  /* Range slider */
+  .dc-range {
+    @apply appearance-none h-1.5 rounded-full bg-gray-200 cursor-pointer dark:bg-slate-700;
+  }
+  .dc-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 9999px;
+    background: #7c3aed;
+    border: 2px solid #fff;
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
+    cursor: pointer;
+  }
+  .dc-range::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 9999px;
+    background: #7c3aed;
+    border: 2px solid #fff;
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
+    cursor: pointer;
+  }
+  .dark .dc-range::-webkit-slider-thumb {
+    border-color: #1e293b;
+  }
+  .dark .dc-range::-moz-range-thumb {
+    border-color: #1e293b;
+  }
+
+  /* Date / time / text field */
+  .dc-field {
+    @apply border border-gray-200 rounded-lg px-2 py-1 bg-white text-gray-700 outline-none transition-colors
+      focus:border-purple-400 focus:ring-2 focus:ring-purple-500/20
+      dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 dark:focus:border-purple-500;
+    color-scheme: light;
+  }
+  .dark .dc-field {
+    color-scheme: dark;
+  }
+  /* Tint the native calendar/clock glyph purple (approximated via filter) */
+  .dc-field::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: 0.85;
+    filter: invert(32%) sepia(72%) saturate(2939%) hue-rotate(253deg) brightness(90%) contrast(95%);
+  }
+  .dark .dc-field::-webkit-calendar-picker-indicator {
+    filter: invert(75%) sepia(25%) saturate(1800%) hue-rotate(215deg) brightness(105%);
+  }
+}
+
 /* Bigger touch targets for item handles on touch devices */
 @media (pointer: coarse) {
   .ctrl {
