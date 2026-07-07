@@ -157,6 +157,27 @@ export default function App() {
 
   const selectedItem = items.find((i) => i.id === selectedId);
 
+  // ─ Theme (light / dark / system) ─
+  // Stored in boardConfig (persists with the rest of settings); applied by toggling
+  // the `dark` class on <html> so Tailwind `dark:` variants take over.
+  const themePref = boardConfig.theme || "system";
+  const [systemDark, setSystemDark] = useState(
+    () => typeof window !== "undefined" && !!window.matchMedia?.("(prefers-color-scheme: dark)").matches
+  );
+  useEffect(() => {
+    const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!mq) return;
+    const onChange = (e) => setSystemDark(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  const isDark = themePref === "dark" || (themePref === "system" && systemDark);
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", isDark);
+    // Keep the browser/PWA chrome color in step with the app chrome.
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", isDark ? "#0f172a" : "#7c3aed");
+  }, [isDark]);
+
   // "Home zone": a soft, decorative frame in world space that hugs your content and grows as the
   // board fills in (more items) and as you level up (bigger minimum footprint). Purely cosmetic —
   // the canvas stays infinite, you can always pan past it — but it gives the empty plane a sense of
@@ -229,7 +250,7 @@ export default function App() {
     setXpNotif(label || `+${amount} XP`);
     if (newLevel > userLevel) {
       setUserLevel(newLevel);
-      setXpNotif(`🎉 LEVEL UP! ${LEVELS.find((l) => l.level === newLevel).title}!`);
+      setXpNotif(`Level up! ${LEVELS.find((l) => l.level === newLevel).title}!`);
     }
     setTimeout(() => setXpNotif(null), 2500);
   };
@@ -248,9 +269,9 @@ export default function App() {
       return next;
     });
     const streak = calculateStreak(newContent);
-    if (streak === 7) addXp(70, "🔥 7-day streak! +70 XP");
-    else if (streak === 30) addXp(220, "🏆 30-day habit! +220 XP");
-    else addXp(20, "✓ Habit done +20 XP");
+    if (streak === 7) addXp(70, "7-day streak! +70 XP");
+    else if (streak === 30) addXp(220, "30-day habit! +220 XP");
+    else addXp(20, "Habit done +20 XP");
   };
 
   // ─ Item drag + canvas pan + touch pinch (window-level pointer listeners) ─
@@ -488,7 +509,7 @@ export default function App() {
     const newContent = JSON.stringify(td);
     // Award only on a real status transition — note edits re-fire this handler.
     if (newData.status === "done" && prevStatus !== "done") awardHabitDone(itemId, dateKey, newContent);
-    else if (newData.status === "planned" && prevStatus !== "planned") addXp(5, "📅 Planned +5 XP");
+    else if (newData.status === "planned" && prevStatus !== "planned") addXp(5, "Planned +5 XP");
     handleUpdateItem(itemId, { content: newContent });
   };
 
@@ -795,6 +816,14 @@ export default function App() {
 
   const backupOverdue = items.length >= 8 && (!lastExportAt || Date.now() - lastExportAt > 7 * 86400000);
 
+  // Canvas surface: in dark theme, the neutral light defaults follow the chrome into slate;
+  // explicit color picks (Warm Paper, Rose, …) are respected as deliberate choices. The dot grid
+  // and home-zone frame adapt to whichever surface actually shows, so the "Dark" board background
+  // no longer clashes with the grid or the chrome.
+  const canvasBg =
+    isDark && ["#f3f4f6", "#ffffff"].includes(boardConfig.backgroundColor) ? "#0f172a" : boardConfig.backgroundColor;
+  const canvasIsDark = ["#0f172a", "#1f2937"].includes(canvasBg);
+
   const currentLevelInfo = LEVELS.find((l) => l.level === userLevel) || LEVELS[0];
   const nextLevelInfo = LEVELS.find((l) => l.level === userLevel + 1);
   const xpForNext = nextLevelInfo ? nextLevelInfo.minXp : userXp + 1000;
@@ -802,16 +831,16 @@ export default function App() {
 
   if (!loaded)
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-50">
+      <div className="h-screen flex items-center justify-center bg-gray-50 dark:bg-slate-950">
         <Loader2 className="animate-spin text-purple-500" size={32} />
       </div>
     );
 
   return (
-    <div className="flex flex-col h-screen w-full overflow-hidden bg-gray-50 text-gray-900 font-sans">
+    <div className="flex flex-col h-screen w-full overflow-hidden bg-gray-50 text-gray-900 dark:bg-slate-950 dark:text-slate-100 font-sans">
       {/* HEADER */}
       <header
-        className={`flex-none bg-white border-b border-gray-200 z-20 px-4 h-14 flex items-center justify-between shadow-sm transition-transform ${
+        className={`flex-none bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 z-20 px-4 h-14 flex items-center justify-between shadow-sm transition-transform ${
           zenMode ? "-translate-y-full absolute w-full" : ""
         }`}
       >
@@ -819,13 +848,13 @@ export default function App() {
           <div className="bg-gradient-to-tr from-purple-600 to-blue-500 p-1.5 rounded-lg text-white">
             <Layers size={18} />
           </div>
-          <h1 className="text-base font-bold text-gray-900 leading-none hidden sm:block">DreamCanvas</h1>
-          <div className="h-5 w-px bg-gray-200 mx-1 hidden sm:block" />
-          <div className="flex bg-gray-100 p-0.5 rounded-lg">
+          <h1 className="text-base font-bold text-gray-900 dark:text-slate-100 leading-none hidden sm:block">DreamCanvas</h1>
+          <div className="h-5 w-px bg-gray-200 dark:bg-slate-700 mx-1 hidden sm:block" />
+          <div className="flex bg-gray-100 dark:bg-slate-800 p-0.5 rounded-lg">
             <button
               onClick={() => setViewMode("vision")}
               className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all uppercase tracking-wide ${
-                viewMode === "vision" ? "bg-white shadow-sm text-purple-600" : "text-gray-500"
+                viewMode === "vision" ? "bg-white dark:bg-slate-700 shadow-sm text-purple-600 dark:text-purple-400" : "text-gray-500 dark:text-slate-400"
               }`}
             >
               Vision
@@ -833,7 +862,7 @@ export default function App() {
             <button
               onClick={() => setViewMode("focus")}
               className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all uppercase tracking-wide ${
-                viewMode === "focus" ? "bg-white shadow-sm text-emerald-600" : "text-gray-500"
+                viewMode === "focus" ? "bg-white dark:bg-slate-700 shadow-sm text-emerald-600 dark:text-emerald-400" : "text-gray-500 dark:text-slate-400"
               }`}
             >
               Focus
@@ -841,27 +870,31 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {xpNotif && <div className="animate-bounce text-emerald-600 font-bold text-xs bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">{xpNotif}</div>}
-          <div className="hidden md:flex items-center gap-1.5 bg-gray-50 px-2 py-1 rounded-full border border-gray-100">
+          {xpNotif && (
+            <div className="animate-bounce text-emerald-600 dark:text-emerald-400 font-bold text-xs bg-emerald-50 dark:bg-emerald-900/40 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
+              <Sparkles size={11} /> {xpNotif}
+            </div>
+          )}
+          <div className="hidden md:flex items-center gap-1.5 bg-gray-50 dark:bg-slate-800 px-2 py-1 rounded-full border border-gray-100 dark:border-slate-700">
             <Crown size={12} className="text-yellow-500" />
-            <span className="text-[10px] font-bold text-gray-600">Lv{userLevel}</span>
-            <div className="w-16 h-1 bg-gray-200 rounded-full">
+            <span className="text-[10px] font-bold text-gray-600 dark:text-slate-300">Lv{userLevel}</span>
+            <div className="w-16 h-1 bg-gray-200 dark:bg-slate-700 rounded-full">
               <div className="h-full bg-yellow-400 rounded-full transition-all" style={{ width: `${progressPercent}%` }} />
             </div>
-            <span className="text-[10px] text-gray-400">{userXp}xp</span>
+            <span className="text-[10px] text-gray-400 dark:text-slate-500">{userXp}xp</span>
           </div>
-          <button onClick={() => importRef.current?.click()} className="p-1.5 text-gray-400 hover:text-emerald-500 hover:bg-emerald-50 rounded-lg" title="Import board (JSON)">
+          <button onClick={() => importRef.current?.click()} className="p-1.5 text-gray-400 dark:text-slate-500 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg" title="Import board (JSON)">
             <Upload size={16} />
           </button>
           <button
             onClick={handleExport}
-            className="relative p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg"
+            className="relative p-1.5 text-gray-400 dark:text-slate-500 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg"
             title={backupOverdue ? "It's been a while — export a backup of your board" : "Export board (JSON)"}
           >
             <Download size={16} />
             {backupOverdue && <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-amber-400 rounded-full" />}
           </button>
-          <button onClick={requestClearBoard} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg" title="Clear">
+          <button onClick={requestClearBoard} className="p-1.5 text-gray-400 dark:text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg" title="Clear">
             <Trash2 size={16} />
           </button>
           <input
@@ -882,7 +915,9 @@ export default function App() {
           <button
             onClick={() => setZenMode(!zenMode)}
             className={`absolute top-3 right-3 z-50 p-1.5 rounded-full shadow-lg transition-all ${
-              zenMode ? "bg-gray-900 text-white opacity-40 hover:opacity-100" : "bg-white text-gray-400 hover:text-purple-600"
+              zenMode
+                ? "bg-gray-900 dark:bg-slate-700 text-white opacity-40 hover:opacity-100"
+                : "bg-white dark:bg-slate-800 text-gray-400 dark:text-slate-400 hover:text-purple-600 dark:hover:text-purple-400"
             }`}
             title="Zen Mode"
           >
@@ -891,54 +926,62 @@ export default function App() {
         )}
 
         {viewMode === "focus" ? (
-          <FocusDashboard items={items} userLevel={userLevel} userXp={userXp} onUpdateItem={handleUpdateItem} onHabitDone={awardHabitDone} levels={LEVELS} />
+          <FocusDashboard
+            items={items}
+            userLevel={userLevel}
+            userXp={userXp}
+            onUpdateItem={handleUpdateItem}
+            onHabitDone={awardHabitDone}
+            levels={LEVELS}
+            onGoToBoard={() => setViewMode("vision")}
+          />
         ) : (
           <>
             {/* TOOLBAR */}
             <div
-              className={`w-14 bg-white border-r border-gray-200 flex flex-col items-center py-3 gap-2 shadow-sm z-20 transition-transform ${
+              className={`w-14 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800 flex flex-col items-center py-3 gap-2 shadow-sm z-20 transition-transform ${
                 zenMode ? "-translate-x-full absolute h-full" : ""
               }`}
             >
               <ToolbarButton icon={Plus} label="Add" onClick={() => setShowAddMenu(!showAddMenu)} active={showAddMenu} />
               {showAddMenu && (
-                <div className="absolute left-14 top-3 bg-white border shadow-xl rounded-xl p-2 grid gap-1 w-44 z-50 ml-1">
-                  <div className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-0.5 px-2">Basics</div>
-                  <button onClick={() => addItem("text", "GOAL")} className="text-left p-1.5 hover:bg-purple-50 rounded text-xs flex gap-2 text-gray-700">
+                <div className="absolute left-14 top-3 bg-white dark:bg-slate-800 border dark:border-slate-700 shadow-xl rounded-xl p-2 grid gap-1 w-44 z-50 ml-1">
+                  <div className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-0.5 px-2">Basics</div>
+                  <button onClick={() => addItem("text", "GOAL")} className="text-left p-1.5 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded text-xs flex gap-2 text-gray-700 dark:text-slate-300">
                     <Type size={14} /> Text
                   </button>
-                  <button onClick={() => addItem("note", "Note...", { backgroundColor: "#fef3c7" })} className="text-left p-1.5 hover:bg-yellow-50 rounded text-xs flex gap-2 text-gray-700">
+                  <button onClick={() => addItem("note", "Note...", { backgroundColor: "#fef3c7" })} className="text-left p-1.5 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded text-xs flex gap-2 text-gray-700 dark:text-slate-300">
                     <StickyNote size={14} /> Sticky Note
                   </button>
-                  <button onClick={() => { setShowImageModal(true); setShowAddMenu(false); }} className="text-left p-1.5 hover:bg-gray-100 rounded text-xs flex gap-2 text-gray-700">
+                  <button onClick={() => { setShowImageModal(true); setShowAddMenu(false); }} className="text-left p-1.5 hover:bg-gray-100 dark:hover:bg-slate-700 rounded text-xs flex gap-2 text-gray-700 dark:text-slate-300">
                     <LinkIcon size={14} /> Image
                   </button>
-                  <div className="h-px bg-gray-100 my-0.5" />
-                  <div className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-0.5 px-2">Productivity</div>
-                  <button onClick={() => addItem("goals", "{}")} className="text-left p-1.5 hover:bg-blue-50 rounded text-xs flex gap-2 text-gray-700">
+                  <div className="h-px bg-gray-100 dark:bg-slate-700 my-0.5" />
+                  <div className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-0.5 px-2">Productivity</div>
+                  <button onClick={() => addItem("goals", "{}")} className="text-left p-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded text-xs flex gap-2 text-gray-700 dark:text-slate-300">
                     <ListTodo size={14} /> Goal List
                   </button>
-                  <button onClick={() => addItem("tracker", "{}", { width: 280, height: 340 })} className="text-left p-1.5 hover:bg-emerald-50 rounded text-xs flex gap-2 text-gray-700">
+                  <button onClick={() => addItem("tracker", "{}", { width: 280, height: 340 })} className="text-left p-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded text-xs flex gap-2 text-gray-700 dark:text-slate-300">
                     <Calendar size={14} /> Habit Tracker
                   </button>
-                  <button onClick={() => addItem("journal", "Dear Diary...")} className="text-left p-1.5 hover:bg-indigo-50 rounded text-xs flex gap-2 text-gray-700">
+                  <button onClick={() => addItem("journal", "Dear Diary...")} className="text-left p-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded text-xs flex gap-2 text-gray-700 dark:text-slate-300">
                     <PenLine size={14} /> Journal
                   </button>
-                  <div className="h-px bg-gray-100 my-0.5" />
-                  <div className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-0.5 px-2">Widgets</div>
-                  <button onClick={() => addItem("timer", new Date(Date.now() + 86400000 * 7).toISOString())} className="text-left p-1.5 hover:bg-orange-50 rounded text-xs flex gap-2 text-gray-700">
+                  <div className="h-px bg-gray-100 dark:bg-slate-700 my-0.5" />
+                  <div className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-0.5 px-2">Widgets</div>
+                  <button onClick={() => addItem("timer", new Date(Date.now() + 86400000 * 7).toISOString())} className="text-left p-1.5 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded text-xs flex gap-2 text-gray-700 dark:text-slate-300">
                     <Timer size={14} /> Countdown
                   </button>
                 </div>
               )}
-              <div className="w-8 h-px bg-gray-200 my-1" />
+              <div className="w-8 h-px bg-gray-200 dark:bg-slate-700 my-1" />
               <ToolbarButton icon={LayoutTemplate} label="Templates" onClick={() => setShowTemplateModal(true)} />
               <ToolbarButton icon={Sparkles} label="AI" onClick={() => { setShowAIModal(true); setAiPrompt(""); setAiResults(null); }} />
               <ToolbarButton icon={MessageCircle} label="Coach" onClick={() => setShowChatModal(true)} />
               <ToolbarButton icon={BarChart3} label="Review" onClick={handleOpenReview} />
               <ToolbarButton icon={Smile} label="Stickers" onClick={() => setShowStickerModal(true)} />
               <ToolbarButton icon={BookOpen} label="Library" onClick={() => setShowLibraryModal(true)} />
-              <div className="w-8 h-px bg-gray-200 my-1" />
+              <div className="w-8 h-px bg-gray-200 dark:bg-slate-700 my-1" />
               <ToolbarButton icon={Settings} label="Settings" onClick={() => setShowSettingsModal(true)} />
             </div>
 
@@ -947,7 +990,7 @@ export default function App() {
               ref={boardRef}
               className={`flex-1 relative overflow-hidden ${panState ? "cursor-grabbing" : "cursor-grab"} transition-colors`}
               style={{
-                backgroundColor: boardConfig.backgroundColor,
+                backgroundColor: canvasBg,
                 touchAction: "none",
                 filter: `brightness(${boardBrightness})`,
               }}
@@ -958,7 +1001,7 @@ export default function App() {
               <div
                 className="absolute inset-0 pointer-events-none"
                 style={{
-                  backgroundImage: "radial-gradient(#cbd5e1 1px, transparent 1px)",
+                  backgroundImage: `radial-gradient(${canvasIsDark ? "#475569" : "#cbd5e1"} 1px, transparent 1px)`,
                   backgroundSize: `${20 * view.zoom}px ${20 * view.zoom}px`,
                   backgroundPosition: `${view.x}px ${view.y}px`,
                   WebkitMaskImage: "radial-gradient(ellipse 78% 78% at 50% 45%, #000 50%, transparent 100%)",
@@ -974,8 +1017,10 @@ export default function App() {
                       top: homeZone.y,
                       width: homeZone.w,
                       height: homeZone.h,
-                      border: "2px dashed rgba(148,163,184,0.35)",
-                      background: "radial-gradient(ellipse at center, rgba(255,255,255,0.45), rgba(255,255,255,0) 70%)",
+                      border: canvasIsDark ? "2px dashed rgba(100,116,139,0.4)" : "2px dashed rgba(148,163,184,0.35)",
+                      background: canvasIsDark
+                        ? "radial-gradient(ellipse at center, rgba(148,163,184,0.07), rgba(148,163,184,0) 70%)"
+                        : "radial-gradient(ellipse at center, rgba(255,255,255,0.45), rgba(255,255,255,0) 70%)",
                     }}
                   />
                 )}
@@ -1009,22 +1054,40 @@ export default function App() {
                 </div>
               )}
               {items.length === 0 && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-30">
-                  <div className="text-center">
-                    <Layers size={48} className="mx-auto mb-3 text-gray-400" />
-                    <h2 className="text-xl font-bold text-gray-400 mb-1">Create Your Vision</h2>
-                    <p className="text-gray-400 text-sm">Click + to add widgets, or pick a template</p>
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none p-4">
+                  <div className="pointer-events-auto text-center max-w-sm w-full bg-white/80 dark:bg-slate-900/80 backdrop-blur rounded-2xl border border-gray-200/80 dark:border-slate-700/80 shadow-xl p-8">
+                    <div className="w-12 h-12 mx-auto mb-4 rounded-2xl bg-gradient-to-tr from-purple-600 to-blue-500 text-white flex items-center justify-center shadow-md">
+                      <Layers size={22} />
+                    </div>
+                    <h2 className="text-lg font-bold text-gray-900 dark:text-slate-100 mb-1">Create your vision</h2>
+                    <p className="text-sm text-gray-500 dark:text-slate-400 mb-5 leading-relaxed">
+                      Goals stick when you can see them — pair a picture of where you're going with trackers and if-then plans for how.
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-2 justify-center">
+                      <button
+                        onClick={() => setShowTemplateModal(true)}
+                        className="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 shadow-sm"
+                      >
+                        <LayoutTemplate size={15} /> Browse templates
+                      </button>
+                      <button
+                        onClick={() => setShowAddMenu(true)}
+                        className="flex-1 px-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 text-gray-700 dark:text-slate-200 hover:border-purple-300 dark:hover:border-purple-500 hover:text-purple-700 dark:hover:text-purple-300 rounded-xl text-sm font-medium flex items-center justify-center gap-1.5"
+                      >
+                        <Plus size={15} /> Add your first item
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
 
               {/* Zoom controls */}
               {!zenMode && (
-                <div className="absolute bottom-3 right-3 z-30 flex items-center gap-1 bg-white/90 backdrop-blur rounded-full shadow-lg border border-gray-200 px-1.5 py-1">
+                <div className="absolute bottom-3 right-3 z-30 flex items-center gap-1 bg-white/90 dark:bg-slate-800/90 backdrop-blur rounded-full shadow-lg border border-gray-200 dark:border-slate-700 px-1.5 py-1">
                   <button
                     onClick={undo}
                     disabled={!canUndo}
-                    className="p-1.5 text-gray-500 rounded-full enabled:hover:text-purple-600 enabled:hover:bg-purple-50 disabled:opacity-30"
+                    className="p-1.5 text-gray-500 dark:text-slate-400 rounded-full enabled:hover:text-purple-600 dark:enabled:hover:text-purple-400 enabled:hover:bg-purple-50 dark:enabled:hover:bg-purple-900/30 disabled:opacity-30"
                     title="Undo (Ctrl+Z)"
                   >
                     <Undo2 size={15} />
@@ -1032,22 +1095,22 @@ export default function App() {
                   <button
                     onClick={redo}
                     disabled={!canRedo}
-                    className="p-1.5 text-gray-500 rounded-full enabled:hover:text-purple-600 enabled:hover:bg-purple-50 disabled:opacity-30"
+                    className="p-1.5 text-gray-500 dark:text-slate-400 rounded-full enabled:hover:text-purple-600 dark:enabled:hover:text-purple-400 enabled:hover:bg-purple-50 dark:enabled:hover:bg-purple-900/30 disabled:opacity-30"
                     title="Redo (Ctrl+Shift+Z)"
                   >
                     <Redo2 size={15} />
                   </button>
-                  <div className="w-px h-4 bg-gray-200 mx-0.5" />
-                  <button onClick={() => zoomAtCenter(1 / 1.2)} className="p-1.5 text-gray-500 hover:text-purple-600 rounded-full hover:bg-purple-50" title="Zoom out">
+                  <div className="w-px h-4 bg-gray-200 dark:bg-slate-600 mx-0.5" />
+                  <button onClick={() => zoomAtCenter(1 / 1.2)} className="p-1.5 text-gray-500 dark:text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 rounded-full hover:bg-purple-50 dark:hover:bg-purple-900/30" title="Zoom out">
                     <ZoomOut size={15} />
                   </button>
-                  <button onClick={resetView} className="text-[10px] font-bold text-gray-600 w-10 py-1 text-center hover:text-purple-600" title="Reset to 100%">
+                  <button onClick={resetView} className="text-[10px] font-bold text-gray-600 dark:text-slate-300 w-10 py-1 text-center hover:text-purple-600 dark:hover:text-purple-400" title="Reset to 100%">
                     {Math.round(view.zoom * 100)}%
                   </button>
-                  <button onClick={() => zoomAtCenter(1.2)} className="p-1.5 text-gray-500 hover:text-purple-600 rounded-full hover:bg-purple-50" title="Zoom in">
+                  <button onClick={() => zoomAtCenter(1.2)} className="p-1.5 text-gray-500 dark:text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 rounded-full hover:bg-purple-50 dark:hover:bg-purple-900/30" title="Zoom in">
                     <ZoomIn size={15} />
                   </button>
-                  <div className="w-px h-4 bg-gray-200 mx-0.5" />
+                  <div className="w-px h-4 bg-gray-200 dark:bg-slate-600 mx-0.5" />
                   <button onClick={fitView} className="p-1.5 bg-purple-600 text-white rounded-full hover:bg-purple-700 shadow-sm" title="Fit board into view">
                     <LocateFixed size={14} />
                   </button>

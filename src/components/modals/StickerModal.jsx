@@ -3,7 +3,7 @@ import { STICKER_PACKS } from "../../constants/stickers";
 
 const StickerModal = ({ userLevel, onPick, onClose }) => (
   <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh]">
+    <div className="bg-white dark:bg-slate-900 dark:border dark:border-slate-700 rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh]">
       <div className="bg-gradient-to-r from-pink-500 to-purple-600 p-3 text-white flex justify-between items-center">
         <div className="flex items-center gap-2">
           <Smile size={18} />
@@ -19,7 +19,7 @@ const StickerModal = ({ userLevel, onPick, onClose }) => (
             const isLocked = userLevel < pack.levelReq;
             return (
               <div key={category} className={isLocked ? "opacity-50 grayscale" : ""}>
-                <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 flex justify-between">
+                <h4 className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-1.5 flex justify-between">
                   {category}
                   {isLocked && (
                     <span className="text-pink-500 flex items-center gap-0.5">
@@ -35,7 +35,7 @@ const StickerModal = ({ userLevel, onPick, onClose }) => (
                         if (!isLocked) onPick(emoji);
                       }}
                       disabled={isLocked}
-                      className={`text-2xl p-1.5 rounded-lg transition-transform ${isLocked ? "cursor-not-allowed" : "hover:bg-gray-100 hover:scale-125"}`}
+                      className={`text-2xl p-1.5 rounded-lg transition-transform ${isLocked ? "cursor-not-allowed" : "hover:bg-gray-100 dark:hover:bg-slate-800 hover:scale-125"}`}
                     >
                       {emoji}
                     </button>

@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Snowflake } from "lucide-react";
 import { normalizeDayData, isFreezeActive } from "../../utils/helpers";
 import { TRACKER_MARKERS } from "../../constants/colors";
 
@@ -102,8 +102,8 @@ const TrackerCalendar = ({ item, zenMode, onUpdate, onDayClick }) => {
       {!zenMode && (
         <div className="mt-1 pt-1 border-t border-gray-100">
           {isFreezeActive(item.content) && (
-            <div className="text-[9px] text-sky-600 bg-sky-50 border border-sky-100 rounded-md px-1.5 py-0.5 mb-1 flex items-center gap-1">
-              🧊 <span className="font-medium">Freeze saved your streak — never miss twice!</span>
+            <div className="text-[10px] text-sky-600 bg-sky-50 border border-sky-100 rounded-md px-1.5 py-0.5 mb-1 flex items-center gap-1">
+              <Snowflake size={10} className="flex-none" /> <span className="font-medium">Freeze saved your streak — never miss twice!</span>
             </div>
           )}
           <div className="flex justify-between text-[9px] text-gray-500 mb-0.5">

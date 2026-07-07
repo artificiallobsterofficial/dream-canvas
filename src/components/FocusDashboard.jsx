@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
-import { Zap, StickyNote, Activity, CheckCircle2, ListTodo, PenLine, Shield } from "lucide-react";
+import { Zap, StickyNote, Activity, CheckCircle2, ListTodo, PenLine, Shield, Flame, Snowflake, CalendarPlus, ArrowRight } from "lucide-react";
 import { normalizeDayData, safeContent, todayKey, calculateStreak, isFreezeActive } from "../utils/helpers";
 import { ACHIEVEMENTS } from "../constants/achievements";
 
-const FocusDashboard = ({ items, userLevel, userXp, onUpdateItem, onHabitDone, levels }) => {
+const FocusDashboard = ({ items, userLevel, userXp, onUpdateItem, onHabitDone, levels, onGoToBoard }) => {
   const [today, setToday] = useState("");
   const [currentQuote, setCurrentQuote] = useState("");
   const [quickNote, setQuickNote] = useState("");
@@ -73,12 +73,12 @@ const FocusDashboard = ({ items, userLevel, userXp, onUpdateItem, onHabitDone, l
   const progressPercent = habits.length === 0 ? 0 : Math.round((completedHabits / habits.length) * 100);
 
   return (
-    <div className="flex-1 bg-gray-50 p-4 md:p-6 overflow-y-auto flex justify-center">
+    <div className="flex-1 bg-gray-50 dark:bg-slate-950 p-4 md:p-6 overflow-y-auto flex justify-center">
       <div className="max-w-5xl w-full grid grid-cols-1 md:grid-cols-12 gap-4">
         <div className="md:col-span-3 flex flex-col gap-4">
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-            <h2 className="text-3xl font-bold text-gray-900 mb-1">{new Date().getDate()}</h2>
-            <p className="text-gray-500 uppercase tracking-widest text-[10px] font-bold mb-3">
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-800">
+            <h2 className="text-3xl font-bold text-gray-900 dark:text-slate-100 mb-1">{new Date().getDate()}</h2>
+            <p className="text-gray-500 dark:text-slate-400 uppercase tracking-widest text-[10px] font-bold mb-3">
               {new Date().toLocaleDateString("en-US", { month: "long", weekday: "long" })}
             </p>
             <div className="h-1 w-8 bg-purple-500 rounded-full" />
@@ -90,13 +90,13 @@ const FocusDashboard = ({ items, userLevel, userXp, onUpdateItem, onHabitDone, l
             </div>
             <p className="text-sm leading-relaxed italic font-serif">"{currentQuote}"</p>
           </div>
-          <div className="bg-yellow-50 p-5 rounded-2xl shadow-sm border border-yellow-100 flex-1 flex flex-col min-h-[150px]">
-            <div className="flex items-center gap-1.5 mb-2 text-yellow-800 opacity-60">
+          <div className="bg-yellow-50 dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-yellow-100 dark:border-slate-800 flex-1 flex flex-col min-h-[150px]">
+            <div className="flex items-center gap-1.5 mb-2 text-yellow-800 dark:text-yellow-500 opacity-60">
               <StickyNote size={14} />
               <span className="text-[10px] font-bold uppercase tracking-wider">Scratchpad</span>
             </div>
             <textarea
-              className="flex-1 w-full bg-transparent border-none resize-none focus:ring-0 text-xs text-gray-700 leading-relaxed font-mono outline-none"
+              className="flex-1 w-full bg-transparent border-none resize-none focus:ring-0 text-xs text-gray-700 dark:text-slate-300 leading-relaxed font-mono outline-none"
               placeholder="Quick thoughts..."
               value={quickNote}
               onChange={(e) => {
@@ -107,15 +107,29 @@ const FocusDashboard = ({ items, userLevel, userXp, onUpdateItem, onHabitDone, l
           </div>
         </div>
         <div className="md:col-span-6 flex flex-col gap-4">
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-              <h3 className="font-bold text-gray-900 flex items-center gap-2">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-800 overflow-hidden">
+            <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex justify-between items-center bg-gray-50/50 dark:bg-slate-800/50">
+              <h3 className="font-bold text-gray-900 dark:text-slate-100 flex items-center gap-2">
                 <Activity size={18} className="text-emerald-500" /> Today's Habits
               </h3>
-              <span className="text-xl font-bold text-gray-900">{completedHabits}/{habits.length}</span>
+              <span className="text-xl font-bold text-gray-900 dark:text-slate-100">{completedHabits}/{habits.length}</span>
             </div>
-            <div className="divide-y divide-gray-50">
-              {habits.length === 0 && <div className="p-6 text-center text-gray-400 text-sm">No trackers yet. Add one in Vision Mode.</div>}
+            <div className="divide-y divide-gray-50 dark:divide-slate-800">
+              {habits.length === 0 && (
+                <div className="p-8 text-center">
+                  <div className="w-10 h-10 mx-auto mb-3 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 text-emerald-500 flex items-center justify-center">
+                    <CalendarPlus size={18} />
+                  </div>
+                  <p className="text-sm font-medium text-gray-600 dark:text-slate-300 mb-1">No trackers yet</p>
+                  <p className="text-xs text-gray-400 dark:text-slate-500 mb-3">A tracker turns a goal into a daily check-in — the habit does the heavy lifting.</p>
+                  <button
+                    onClick={onGoToBoard}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/30 px-3 py-1.5 rounded-lg"
+                  >
+                    Add one in Vision mode <ArrowRight size={12} />
+                  </button>
+                </div>
+              )}
               {habits.map((habit) => {
                 let isDone = false;
                 try {
@@ -127,61 +141,83 @@ const FocusDashboard = ({ items, userLevel, userXp, onUpdateItem, onHabitDone, l
                   <div
                     key={habit.id}
                     onClick={() => toggleHabit(habit)}
-                    className={`p-3 flex items-center gap-3 cursor-pointer transition-all hover:bg-gray-50 ${isDone ? "bg-emerald-50/30" : ""}`}
+                    className={`p-3 flex items-center gap-3 cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-slate-800/60 ${isDone ? "bg-emerald-50/30 dark:bg-emerald-900/10" : ""}`}
                   >
-                    <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors ${isDone ? "bg-emerald-500 border-emerald-500 text-white" : "border-gray-300"}`}>
+                    <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors ${isDone ? "bg-emerald-500 border-emerald-500 text-white" : "border-gray-300 dark:border-slate-600"}`}>
                       {isDone && <CheckCircle2 size={12} strokeWidth={4} />}
                     </div>
-                    <span className={`font-medium flex-1 text-sm ${isDone ? "text-gray-400 line-through" : "text-gray-700"}`}>{habit.title || "Untitled"}</span>
-                    {frozen && <span title="A freeze saved this streak — never miss twice!" className="text-[10px]">🧊</span>}
-                    {streak >= 2 && <span className="text-[10px] font-bold text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded-full">🔥 {streak}</span>}
-                    {isDone && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full">+20 XP</span>}
+                    <span className={`font-medium flex-1 text-sm ${isDone ? "text-gray-400 dark:text-slate-500 line-through" : "text-gray-700 dark:text-slate-200"}`}>{habit.title || "Untitled"}</span>
+                    {frozen && (
+                      <span title="A freeze saved this streak — never miss twice!" className="text-sky-500">
+                        <Snowflake size={12} />
+                      </span>
+                    )}
+                    {streak >= 2 && (
+                      <span className="text-[10px] font-bold text-orange-500 bg-orange-50 dark:bg-orange-900/30 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                        <Flame size={10} /> {streak}
+                      </span>
+                    )}
+                    {isDone && <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/40 px-1.5 py-0.5 rounded-full">+20 XP</span>}
                   </div>
                 );
               })}
             </div>
-            <div className="h-1 w-full bg-gray-100">
+            <div className="h-1 w-full bg-gray-100 dark:bg-slate-800">
               <div className="h-full bg-emerald-500 transition-all" style={{ width: `${progressPercent}%` }} />
             </div>
           </div>
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex-1">
-            <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-800 p-4 flex-1">
+            <h3 className="font-bold text-gray-900 dark:text-slate-100 mb-3 flex items-center gap-2">
               <ListTodo size={18} className="text-blue-500" /> Short Term Goals
             </h3>
             <div className="space-y-2">
-              {todoList.length === 0 && <p className="text-sm text-gray-400 italic">No goals set yet.</p>}
+              {todoList.length === 0 && (
+                <div className="py-4 text-center">
+                  <div className="w-10 h-10 mx-auto mb-3 rounded-xl bg-blue-50 dark:bg-blue-900/30 text-blue-500 flex items-center justify-center">
+                    <ListTodo size={18} />
+                  </div>
+                  <p className="text-sm font-medium text-gray-600 dark:text-slate-300 mb-1">No goals set yet</p>
+                  <p className="text-xs text-gray-400 dark:text-slate-500 mb-3">Capture two or three short-term goals in a Goal List and they'll show up here.</p>
+                  <button
+                    onClick={onGoToBoard}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/30 px-3 py-1.5 rounded-lg"
+                  >
+                    Set goals on the board <ArrowRight size={12} />
+                  </button>
+                </div>
+              )}
               {todoList.map((todo, idx) => (
-                <div key={idx} className="flex items-start gap-2 p-2 bg-gray-50 rounded-lg border border-gray-100">
-                  <div className="mt-0.5 w-3 h-3 rounded-full border-2 border-blue-200 flex-shrink-0" />
-                  <span className="text-xs text-gray-700">{safeContent(todo)}</span>
+                <div key={idx} className="flex items-start gap-2 p-2 bg-gray-50 dark:bg-slate-800/60 rounded-lg border border-gray-100 dark:border-slate-700">
+                  <div className="mt-0.5 w-3 h-3 rounded-full border-2 border-blue-200 dark:border-blue-800 flex-shrink-0" />
+                  <span className="text-xs text-gray-700 dark:text-slate-300">{safeContent(todo)}</span>
                 </div>
               ))}
             </div>
             {(woop.obstacle || woop.plan) && (
-              <div className="mt-3 p-3 bg-amber-50 border border-amber-100 rounded-xl">
-                <h4 className="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+              <div className="mt-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-900/40 rounded-xl">
+                <h4 className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
                   <Shield size={10} /> Your If-Then Plan
                 </h4>
                 {/* Labeled lines, not sentence-splicing — user text stays verbatim. */}
                 {woop.obstacle && (
-                  <p className="text-xs text-amber-900 leading-relaxed whitespace-pre-wrap">
+                  <p className="text-xs text-amber-900 dark:text-amber-200 leading-relaxed whitespace-pre-wrap">
                     <span className="font-bold">{woop.plan ? "If:" : "Obstacle:"}</span> {woop.obstacle.trim()}
                   </p>
                 )}
                 {woop.plan && (
-                  <p className="text-xs text-amber-900 leading-relaxed whitespace-pre-wrap">
+                  <p className="text-xs text-amber-900 dark:text-amber-200 leading-relaxed whitespace-pre-wrap">
                     <span className="font-bold">{woop.obstacle ? "Then:" : "Plan:"}</span> {woop.plan.trim()}
                   </p>
                 )}
               </div>
             )}
           </div>
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex-1 flex flex-col">
-            <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-800 p-4 flex-1 flex flex-col">
+            <h3 className="font-bold text-gray-900 dark:text-slate-100 mb-3 flex items-center gap-2">
               <PenLine size={18} className="text-indigo-500" /> Daily Journal
             </h3>
             <textarea
-              className="w-full flex-1 min-h-[120px] p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none resize-none text-gray-700 text-sm leading-relaxed font-serif"
+              className="w-full flex-1 min-h-[120px] p-3 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none resize-none text-gray-700 dark:text-slate-200 text-sm leading-relaxed font-serif"
               placeholder="Reflect on your day..."
               value={journalText}
               onChange={(e) => {
@@ -192,39 +228,42 @@ const FocusDashboard = ({ items, userLevel, userXp, onUpdateItem, onHabitDone, l
           </div>
         </div>
         <div className="md:col-span-3 flex flex-col gap-4">
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 text-center">
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-800 text-center">
             <div className="w-16 h-16 mx-auto bg-gradient-to-tr from-yellow-400 to-orange-500 rounded-2xl rotate-3 flex items-center justify-center text-white text-2xl font-bold shadow-lg mb-3">
               {userLevel}
             </div>
-            <h3 className="font-bold text-gray-900 uppercase tracking-widest text-xs mb-0.5">{currentLevelInfo.title}</h3>
-            <p className="text-[10px] text-gray-400 mb-3">Level {userLevel}</p>
-            <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden mb-1">
+            <h3 className="font-bold text-gray-900 dark:text-slate-100 uppercase tracking-widest text-xs mb-0.5">{currentLevelInfo.title}</h3>
+            <p className="text-[10px] text-gray-400 dark:text-slate-500 mb-3">Level {userLevel}</p>
+            <div className="w-full bg-gray-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden mb-1">
               <div
                 className="h-full bg-yellow-400 rounded-full"
                 style={{ width: `${Math.min(100, Math.max(0, ((userXp - currentLevelInfo.minXp) / (xpForNext - currentLevelInfo.minXp)) * 100))}%` }}
               />
             </div>
-            <p className="text-[10px] font-mono text-gray-500">{userXp} / {xpForNext} XP</p>
+            <p className="text-[10px] font-mono text-gray-500 dark:text-slate-400">{userXp} / {xpForNext} XP</p>
           </div>
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-            <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-3">Achievements</h4>
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-800">
+            <h4 className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-3">Achievements</h4>
             <div className="grid grid-cols-4 gap-1.5">
               {ACHIEVEMENTS.map((a) => {
                 const unlocked = a.test(items);
+                const Icon = a.icon;
                 return (
                   <div
                     key={a.id}
                     title={`${a.title} — ${a.desc}`}
-                    className={`aspect-square rounded-xl flex items-center justify-center text-lg transition-all ${
-                      unlocked ? "bg-indigo-50 border border-indigo-100" : "bg-gray-50 border border-gray-100 grayscale opacity-40"
+                    className={`aspect-square rounded-xl flex items-center justify-center transition-all ${
+                      unlocked
+                        ? `bg-indigo-50 border border-indigo-100 dark:bg-indigo-900/30 dark:border-indigo-800 ${a.iconColor}`
+                        : "bg-gray-50 border border-gray-100 dark:bg-slate-800 dark:border-slate-700 text-gray-300 dark:text-slate-600"
                     }`}
                   >
-                    {a.icon}
+                    <Icon size={18} />
                   </div>
                 );
               })}
             </div>
-            <p className="text-[10px] text-gray-400 mt-2 leading-relaxed">
+            <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-2 leading-relaxed">
               {ACHIEVEMENTS.filter((a) => a.test(items)).length}/{ACHIEVEMENTS.length} unlocked — hover to see how
             </p>
           </div>
