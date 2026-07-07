@@ -3,7 +3,7 @@ import {
   Plus, Type, Trash2, Layers, StickyNote, Sparkles, Loader2, Calendar,
   Link as LinkIcon, MessageCircle, BookOpen, ListTodo, Crown, Zap,
   LayoutTemplate, PenLine, Eye, EyeOff, Download, Upload, Settings, Smile,
-  Timer, ZoomIn, ZoomOut, BarChart3, LocateFixed,
+  Timer, ZoomIn, ZoomOut, BarChart3, LocateFixed, Undo2, Redo2,
 } from "lucide-react";
 
 import { generateId, normalizeDayData, safeContent, todayKey, calculateStreak } from "./utils/helpers";
@@ -32,6 +32,9 @@ import ConfirmModal from "./components/modals/ConfirmModal";
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 3;
+const HISTORY_LIMIT = 50;
+// Snap threshold in *screen* pixels — divided by zoom to get world units.
+const SNAP_THRESHOLD = 6;
 const DEFAULT_GREETING = { role: "assistant", text: "Hi! I'm your Vision Coach ✨ What big dream are you working on? I can help with goals, affirmations, or ideas!" };
 
 export default function App() {
@@ -60,6 +63,72 @@ export default function App() {
   const pinchRef = useRef({ pointers: new Map(), pinch: null });
   const viewRef = useRef(view);
   viewRef.current = view;
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+
+  // ─ Undo/redo: bounded stacks of items-array snapshots ─
+  // Snapshots are captured on *discrete* mutations only (add, delete, duplicate,
+  // property change, drag-end, resize-end) — never on every pointermove. XP,
+  // view, and boardConfig are deliberately outside history.
+  const historyRef = useRef({ undo: [], redo: [] });
+  const lastPushRef = useRef({ key: null, ts: 0 });
+  const [, setHistoryVersion] = useState(0); // re-render trigger for button disabled state
+  const bumpHistory = () => setHistoryVersion((v) => v + 1);
+
+  // `coalesceKey`: rapid same-key pushes (textarea keystrokes, color-slider drags,
+  // arrow-key nudge bursts) within 1s collapse into one history entry.
+  const pushHistory = useCallback((snapshot, coalesceKey = null) => {
+    const now = Date.now();
+    const lp = lastPushRef.current;
+    if (coalesceKey && lp.key === coalesceKey && now - lp.ts < 1000) {
+      lp.ts = now;
+      return;
+    }
+    lastPushRef.current = { key: coalesceKey, ts: now };
+    const h = historyRef.current;
+    h.undo.push(snapshot);
+    if (h.undo.length > HISTORY_LIMIT) h.undo.shift();
+    h.redo = [];
+    bumpHistory();
+  }, []);
+
+  // Wholesale board replacements (clear, template, import, restore) reset history —
+  // they already keep their own SnapshotService backups.
+  const resetHistory = useCallback(() => {
+    historyRef.current = { undo: [], redo: [] };
+    lastPushRef.current = { key: null, ts: 0 };
+    bumpHistory();
+  }, []);
+
+  const undo = useCallback(() => {
+    const h = historyRef.current;
+    if (h.undo.length === 0) return;
+    const prev = h.undo.pop();
+    h.redo.push(itemsRef.current);
+    if (h.redo.length > HISTORY_LIMIT) h.redo.shift();
+    lastPushRef.current = { key: null, ts: 0 };
+    setItems(prev);
+    setSelectedId((sid) => (sid && prev.some((i) => i.id === sid) ? sid : null));
+    bumpHistory();
+  }, []);
+
+  const redo = useCallback(() => {
+    const h = historyRef.current;
+    if (h.redo.length === 0) return;
+    const next = h.redo.pop();
+    h.undo.push(itemsRef.current);
+    if (h.undo.length > HISTORY_LIMIT) h.undo.shift();
+    lastPushRef.current = { key: null, ts: 0 };
+    setItems(next);
+    setSelectedId((sid) => (sid && next.some((i) => i.id === sid) ? sid : null));
+    bumpHistory();
+  }, []);
+
+  const canUndo = historyRef.current.undo.length > 0;
+  const canRedo = historyRef.current.redo.length > 0;
+
+  // Alignment guides while a drag is snapping: world coords of the active lines.
+  const [snapGuides, setSnapGuides] = useState(null);
 
   // Modals
   const [showImageModal, setShowImageModal] = useState(false);
@@ -190,7 +259,14 @@ export default function App() {
       const pr = pinchRef.current;
       pr.pointers.delete(e.pointerId);
       if (pr.pointers.size < 2) pr.pinch = null;
-      if (dragState.isDragging) setDragState({ isDragging: false });
+      if (dragState.isDragging) {
+        // Drag-end: one history entry for the whole gesture (pre-drag snapshot).
+        // A click that never moved the item (zIndex-raise only) records nothing.
+        const it = itemsRef.current.find((i) => i.id === dragState.id);
+        if (it && (it.x !== dragState.ix || it.y !== dragState.iy)) pushHistory(dragState.preSnapshot);
+        setDragState({ isDragging: false });
+        setSnapGuides(null);
+      }
       if (panState) setPanState(null);
     };
     const handleMove = (e) => {
@@ -223,7 +299,31 @@ export default function App() {
         e.preventDefault();
         const dx = (cx - dragState.startX) / view.zoom;
         const dy = (cy - dragState.startY) / view.zoom;
-        setItems((prev) => prev.map((i) => (i.id === dragState.id ? { ...i, x: dragState.ix + dx, y: dragState.iy + dy } : i)));
+        let nx = dragState.ix + dx;
+        let ny = dragState.iy + dy;
+        // Snap edges/centers to other items (candidates computed once at drag
+        // start). Alt disables. Threshold is screen-space, so it scales with zoom.
+        let gv = null;
+        let gh = null;
+        if (!e.altKey) {
+          const th = SNAP_THRESHOLD / view.zoom;
+          const snapAxis = (pos, size, candidates) => {
+            let best = null;
+            for (const c of candidates) {
+              for (const off of [0, size / 2, size]) {
+                const d = Math.abs(c - (pos + off));
+                if (d <= th && (!best || d < best.d)) best = { d, c, off };
+              }
+            }
+            return best;
+          };
+          const bx = snapAxis(nx, dragState.w, dragState.snapX);
+          const by = snapAxis(ny, dragState.h, dragState.snapY);
+          if (bx) { nx = bx.c - bx.off; gv = bx.c; }
+          if (by) { ny = by.c - by.off; gh = by.c; }
+        }
+        setSnapGuides((prev) => (prev?.v === gv && prev?.h === gh ? prev : gv == null && gh == null ? null : { v: gv, h: gh }));
+        setItems((prev) => prev.map((i) => (i.id === dragState.id ? { ...i, x: nx, y: ny } : i)));
       } else if (panState && e.pointerId === panState.pointerId) {
         e.preventDefault();
         setView((v) => ({ ...v, x: panState.vx + (cx - panState.startX), y: panState.vy + (cy - panState.startY) }));
@@ -326,20 +426,54 @@ export default function App() {
       rotation: type === "sticker" ? Math.random() * 20 - 10 : 0,
       ...extraProps,
     };
+    pushHistory(itemsRef.current);
     setItems((prev) => [...prev, newItem]);
     setSelectedId(newItem.id);
     setShowAddMenu(false);
     return newItem;
   };
 
-  const handleUpdateItem = (id, updates) => {
+  // opts.transient skips history — used for continuous gestures (resize moves),
+  // whose single history entry is pushed at gesture end instead.
+  const handleUpdateItem = (id, updates, opts = {}) => {
     if (updates === null) {
+      pushHistory(itemsRef.current);
       setItems((prev) => prev.filter((i) => i.id !== id));
-      setSelectedId(null);
+      setSelectedId((sid) => (sid === id ? null : sid));
     } else {
+      if (!opts.transient) pushHistory(itemsRef.current, `update:${id}`);
       setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...updates } : i)));
     }
   };
+
+  // Resize-end history: snapshot at handle-down, one entry at release if size changed.
+  const resizeSnapRef = useRef(null);
+  const handleItemResizeStart = () => {
+    resizeSnapRef.current = itemsRef.current;
+  };
+  const handleItemResizeEnd = (id) => {
+    const snap = resizeSnapRef.current;
+    resizeSnapRef.current = null;
+    if (!snap) return;
+    const before = snap.find((i) => i.id === id);
+    const after = itemsRef.current.find((i) => i.id === id);
+    if (before && after && (before.width !== after.width || before.height !== after.height)) pushHistory(snap);
+  };
+
+  // Ctrl+D: clone the selected item slightly offset. New id, top z, no XP —
+  // XP stays completion-only by design.
+  const duplicateItem = useCallback((src) => {
+    pushHistory(itemsRef.current);
+    const copy = {
+      ...src,
+      id: generateId(),
+      x: src.x + 16,
+      y: src.y + 16,
+      zIndex: Math.max(...itemsRef.current.map((i) => i.zIndex || 0), 0) + 1,
+    };
+    setItems((prev) => [...prev, copy]);
+    setSelectedId(copy.id);
+  }, [pushHistory]);
 
   const handleDayUpdate = (itemId, dateKey, newData) => {
     const item = items.find((i) => i.id === itemId);
@@ -365,7 +499,20 @@ export default function App() {
     setSelectedId(item.id);
     const maxZ = Math.max(...items.map((i) => i.zIndex || 0), 0);
     setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, zIndex: maxZ + 1 } : i)));
-    setDragState({ isDragging: true, pointerId: e.pointerId, id: item.id, startX: e.clientX, startY: e.clientY, ix: item.x, iy: item.y });
+    // Snap candidates (other items' edges + centers) computed once per drag,
+    // and the pre-drag snapshot for a single drag-end history entry.
+    const snapX = [];
+    const snapY = [];
+    for (const o of items) {
+      if (o.id === item.id) continue;
+      snapX.push(o.x, o.x + o.width / 2, o.x + o.width);
+      snapY.push(o.y, o.y + o.height / 2, o.y + o.height);
+    }
+    setDragState({
+      isDragging: true, pointerId: e.pointerId, id: item.id,
+      startX: e.clientX, startY: e.clientY, ix: item.x, iy: item.y,
+      w: item.width, h: item.height, snapX, snapY, preSnapshot: items,
+    });
   };
 
   // Track every pointer that lands on the board — capture phase, so item
@@ -406,6 +553,71 @@ export default function App() {
     setPanState({ pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, vx: view.x, vy: view.y });
   };
 
+  // ─ Keyboard shortcuts (desktop-additive; vision mode only) ─
+  // Ignored while typing (input/textarea/contenteditable) or while a modal is up.
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
+  const modalOpenRef = useRef(false);
+  modalOpenRef.current =
+    showImageModal || showAIModal || showStickerModal || showChatModal || showLibraryModal ||
+    showTemplateModal || showSettingsModal || showReviewModal || !!calendarModalData || confirmModal.isOpen;
+
+  useEffect(() => {
+    if (!loaded || viewMode !== "vision") return;
+    const onKeyDown = (e) => {
+      const t = e.target;
+      if (t instanceof Element && (t.closest("input, textarea, select") || t.isContentEditable || t.closest('[contenteditable="true"]'))) return;
+      if (modalOpenRef.current) return;
+      const mod = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
+
+      if (mod && key === "z") {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (mod && key === "y") {
+        e.preventDefault();
+        redo();
+        return;
+      }
+      if (e.key === "Escape") {
+        setSelectedId(null);
+        setShowProps(false);
+        return;
+      }
+
+      const sel = itemsRef.current.find((i) => i.id === selectedIdRef.current);
+      if (!sel) return;
+
+      if (mod && key === "d") {
+        e.preventDefault();
+        duplicateItem(sel);
+        return;
+      }
+      if (e.key === "Delete" || e.key === "Backspace") {
+        // Same behavior as the item's X button and the panel's Remove: no confirm.
+        e.preventDefault();
+        pushHistory(itemsRef.current);
+        setItems((prev) => prev.filter((i) => i.id !== sel.id));
+        setSelectedId(null);
+        setShowProps(false);
+        return;
+      }
+      const step = e.shiftKey ? 10 : 1;
+      const nudge = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+      if (nudge) {
+        e.preventDefault();
+        // Coalesced: a burst of arrow presses is one undo step.
+        pushHistory(itemsRef.current, `nudge:${sel.id}`);
+        setItems((prev) => prev.map((i) => (i.id === sel.id ? { ...i, x: i.x + nudge[0], y: i.y + nudge[1] } : i)));
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [loaded, viewMode, undo, redo, duplicateItem, pushHistory]);
+
   // ─ Templates / clear / export / import ─
   const requestClearBoard = () => {
     setConfirmModal({
@@ -413,6 +625,7 @@ export default function App() {
       message: "Clear your entire vision board? A backup snapshot will be kept in Settings → Backups.",
       onConfirm: () => {
         SnapshotService.take(currentState(), "before-clear");
+        resetHistory();
         setItems([]);
         setBoardConfig({ backgroundColor: "#f3f4f6" });
         setConfirmModal({ isOpen: false });
@@ -423,6 +636,7 @@ export default function App() {
   const applyTemplate = (key) => {
     const apply = () => {
       SnapshotService.take(currentState(), "before-template");
+      resetHistory();
       const tpl = TEMPLATES[key];
       setItems(tpl.items.map((i) => ({ ...i, id: generateId() })));
       setBoardConfig(tpl.config);
@@ -454,6 +668,7 @@ export default function App() {
       message: "Restore this backup? Your current board will be replaced (a snapshot of it is kept first).",
       onConfirm: () => {
         SnapshotService.take(currentState(), "before-restore");
+        resetHistory();
         setItems(data.items || []);
         setBoardConfig(data.boardConfig || { backgroundColor: "#f3f4f6" });
         if (data.profile) {
@@ -476,6 +691,7 @@ export default function App() {
         if (!Array.isArray(data.items)) throw new Error("no items array");
         const restore = () => {
           SnapshotService.take(currentState(), "before-import");
+          resetHistory();
           setItems(data.items);
           setBoardConfig(data.boardConfig || { backgroundColor: "#f3f4f6" });
           if (data.profile) {
@@ -775,10 +991,23 @@ export default function App() {
                       zoom={view.zoom}
                       onMagicBreakdown={handleMagicBreakdown}
                       onOpenProps={() => setShowProps(true)}
+                      onResizeStart={handleItemResizeStart}
+                      onResizeEnd={handleItemResizeEnd}
                     />
                   </div>
                 ))}
               </div>
+              {/* Alignment guides: 1px screen-space lines where the dragged item is snapping */}
+              {snapGuides && (
+                <div className="absolute inset-0 pointer-events-none z-30">
+                  {snapGuides.v != null && (
+                    <div className="absolute top-0 bottom-0 w-px bg-purple-500" style={{ left: snapGuides.v * view.zoom + view.x }} />
+                  )}
+                  {snapGuides.h != null && (
+                    <div className="absolute left-0 right-0 h-px bg-purple-500" style={{ top: snapGuides.h * view.zoom + view.y }} />
+                  )}
+                </div>
+              )}
               {items.length === 0 && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-30">
                   <div className="text-center">
@@ -792,6 +1021,23 @@ export default function App() {
               {/* Zoom controls */}
               {!zenMode && (
                 <div className="absolute bottom-3 right-3 z-30 flex items-center gap-1 bg-white/90 backdrop-blur rounded-full shadow-lg border border-gray-200 px-1.5 py-1">
+                  <button
+                    onClick={undo}
+                    disabled={!canUndo}
+                    className="p-1.5 text-gray-500 rounded-full enabled:hover:text-purple-600 enabled:hover:bg-purple-50 disabled:opacity-30"
+                    title="Undo (Ctrl+Z)"
+                  >
+                    <Undo2 size={15} />
+                  </button>
+                  <button
+                    onClick={redo}
+                    disabled={!canRedo}
+                    className="p-1.5 text-gray-500 rounded-full enabled:hover:text-purple-600 enabled:hover:bg-purple-50 disabled:opacity-30"
+                    title="Redo (Ctrl+Shift+Z)"
+                  >
+                    <Redo2 size={15} />
+                  </button>
+                  <div className="w-px h-4 bg-gray-200 mx-0.5" />
                   <button onClick={() => zoomAtCenter(1 / 1.2)} className="p-1.5 text-gray-500 hover:text-purple-600 rounded-full hover:bg-purple-50" title="Zoom out">
                     <ZoomOut size={15} />
                   </button>

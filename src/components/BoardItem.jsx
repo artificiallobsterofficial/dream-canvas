@@ -4,7 +4,7 @@ import TrackerCalendar from "./widgets/TrackerCalendar";
 import GoalColumns from "./widgets/GoalColumns";
 import CountdownWidget from "./widgets/CountdownWidget";
 
-const BoardItem = ({ item, isSelected, onSelect, onUpdate, onDayClick, zenMode, zoom = 1, onMagicBreakdown, onOpenProps }) => {
+const BoardItem = ({ item, isSelected, onSelect, onUpdate, onDayClick, zenMode, zoom = 1, onMagicBreakdown, onOpenProps, onResizeStart, onResizeEnd }) => {
   const streak = item.type === "tracker" ? calculateStreak(item.content) : 0;
   const showGlow = streak >= 3;
   const isSticker = item.type === "sticker";
@@ -13,15 +13,22 @@ const BoardItem = ({ item, isSelected, onSelect, onUpdate, onDayClick, zenMode, 
 
   const handleResizeStart = (e) => {
     e.stopPropagation();
+    onResizeStart?.(item);
     const startX = e.clientX, startY = e.clientY, startW = item.width, startH = item.height;
+    // Per-move updates are transient — history records one entry at resize end.
     const onMove = (mv) =>
-      onUpdate(item.id, {
-        width: Math.max(60, startW + (mv.clientX - startX) / zoom),
-        height: Math.max(60, startH + (mv.clientY - startY) / zoom),
-      });
+      onUpdate(
+        item.id,
+        {
+          width: Math.max(60, startW + (mv.clientX - startX) / zoom),
+          height: Math.max(60, startH + (mv.clientY - startY) / zoom),
+        },
+        { transient: true }
+      );
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      onResizeEnd?.(item.id);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
