@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { ChevronLeft, ChevronRight, Snowflake } from "lucide-react";
+import { ChevronLeft, ChevronRight, Snowflake, ListChecks, X } from "lucide-react";
 import { normalizeDayData, isFreezeActive } from "../../utils/helpers";
 import { TRACKER_MARKERS } from "../../constants/colors";
 
@@ -25,8 +25,15 @@ const TrackerCalendar = ({ item, zenMode, onUpdate, onDayClick, onDaysSelect }) 
   const doneCount = monthlyKeys.filter((k) => normalizeDayData(trackedDates[k]).status === "done").length;
   const progressPct = Math.round((doneCount / daysInMonth) * 100);
 
+  // Scattered selection: a Set of day numbers, null when not selecting.
+  // Entered via the header toggle or Ctrl/Cmd-click; day numbers are only
+  // meaningful within the shown month, so month navigation clears it.
+  const [selDays, setSelDays] = useState(null);
+  const selecting = !!selDays;
+
   const changeMonth = (offset) => {
     const nd = new Date(year, month + offset, 1);
+    setSelDays(null);
     onUpdate(item.id, { viewDate: nd.getTime() });
   };
   const dayKey = (day) => `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -43,7 +50,9 @@ const TrackerCalendar = ({ item, zenMode, onUpdate, onDayClick, onDaysSelect }) 
   const beginDaySelect = (e, day) => {
     e.stopPropagation();
     if (zenMode) return;
-    dragRef.current = { anchor: day, last: day };
+    // Ctrl/Cmd-click starts (or extends) a scattered selection without the toggle.
+    const multi = selecting || e.ctrlKey || e.metaKey;
+    dragRef.current = { anchor: day, last: day, multi };
     setDragRange({ from: day, to: day });
     const onMove = (ev) => {
       const el = document.elementFromPoint(ev.clientX, ev.clientY);
@@ -66,10 +75,19 @@ const TrackerCalendar = ({ item, zenMode, onUpdate, onDayClick, onDaysSelect }) 
       dragRef.current = null;
       teardown();
       if (!drag) return;
-      if (drag.last === drag.anchor) {
+      const [a, b] = drag.anchor < drag.last ? [drag.anchor, drag.last] : [drag.last, drag.anchor];
+      if (drag.multi) {
+        // Selecting: taps toggle a day, sweeps add the range. Nothing applies
+        // until "Edit" — so scattered patterns (Mon/Wed/Fri) build up freely.
+        setSelDays((prev) => {
+          const s = new Set(prev || []);
+          if (drag.last === drag.anchor) s.has(drag.anchor) ? s.delete(drag.anchor) : s.add(drag.anchor);
+          else for (let d = a; d <= b; d++) s.add(d);
+          return s;
+        });
+      } else if (drag.last === drag.anchor) {
         handleDayClick(drag.anchor);
       } else if (onDaysSelect) {
-        const [a, b] = drag.anchor < drag.last ? [drag.anchor, drag.last] : [drag.last, drag.anchor];
         const keys = [];
         for (let d = a; d <= b; d++) keys.push(dayKey(d));
         onDaysSelect(item.id, keys);
@@ -96,7 +114,7 @@ const TrackerCalendar = ({ item, zenMode, onUpdate, onDayClick, onDaysSelect }) 
     const isDone = dayData.status === "done";
     const isPlanned = dayData.status === "planned";
     const hasNote = !!(dayData.event && dayData.event.trim());
-    const inDragRange = dragRange && d >= Math.min(dragRange.from, dragRange.to) && d <= Math.max(dragRange.from, dragRange.to);
+    const inDragRange = (dragRange && d >= Math.min(dragRange.from, dragRange.to) && d <= Math.max(dragRange.from, dragRange.to)) || (selDays && selDays.has(d));
     days.push(
       <div
         key={d}
@@ -141,9 +159,19 @@ const TrackerCalendar = ({ item, zenMode, onUpdate, onDayClick, onDaysSelect }) 
           <ChevronLeft size={14} />
         </button>
         <span className="font-bold text-gray-500 text-[10px] uppercase tracking-wider">{MONTH_NAMES[month]} {year}</span>
-        <button onPointerDown={(e) => { e.stopPropagation(); changeMonth(1); }} className="p-0.5 hover:bg-gray-100 rounded-full text-gray-400">
-          <ChevronRight size={14} />
-        </button>
+        <div className="flex items-center gap-0.5">
+          <button onPointerDown={(e) => { e.stopPropagation(); changeMonth(1); }} className="p-0.5 hover:bg-gray-100 rounded-full text-gray-400">
+            <ChevronRight size={14} />
+          </button>
+          <button
+            onPointerDown={(e) => { e.stopPropagation(); setSelDays(selecting ? null : new Set()); }}
+            title={selecting ? "Exit multi-select" : "Select multiple days (or Ctrl-click)"}
+            className={`p-0.5 rounded-full ${selecting ? "text-white" : "text-gray-400 hover:bg-gray-100"}`}
+            style={{ backgroundColor: selecting ? themeColor : undefined }}
+          >
+            <ListChecks size={14} />
+          </button>
+        </div>
       </div>
       {!zenMode && (
         <div className="grid grid-cols-7 gap-0.5 mb-0.5 text-center text-[9px] text-gray-400 font-bold">
@@ -151,6 +179,33 @@ const TrackerCalendar = ({ item, zenMode, onUpdate, onDayClick, onDaysSelect }) 
         </div>
       )}
       <div className="grid grid-cols-7 gap-0.5 place-items-center mb-auto">{days}</div>
+      {selecting && (
+        <div
+          className="flex items-center justify-between gap-1 mt-1 rounded-md px-1.5 py-1 text-[10px] font-medium"
+          style={{ backgroundColor: `${themeColor}15`, color: themeColor }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <span>{selDays.size === 0 ? "Tap days to select" : `${selDays.size} day${selDays.size > 1 ? "s" : ""} selected`}</span>
+          <span className="flex items-center gap-1">
+            {selDays.size > 0 && onDaysSelect && (
+              <button
+                onClick={() => {
+                  const keys = [...selDays].sort((x, y) => x - y).map(dayKey);
+                  setSelDays(null);
+                  onDaysSelect(item.id, keys);
+                }}
+                className="px-1.5 py-0.5 rounded text-white font-bold"
+                style={{ backgroundColor: themeColor }}
+              >
+                Edit
+              </button>
+            )}
+            <button onClick={() => setSelDays(null)} className="p-0.5 rounded hover:bg-black/5">
+              <X size={11} />
+            </button>
+          </span>
+        </div>
+      )}
       {!zenMode && (
         <div className="mt-1 pt-1 border-t border-gray-100">
           {isFreezeActive(item.content) && (
