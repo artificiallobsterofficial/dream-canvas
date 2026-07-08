@@ -16,9 +16,12 @@
     <meta name="apple-mobile-web-app-title" content="DreamCanvas" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- crossorigin lets the PNG exporter (html-to-image) read this sheet's cssRules
+         to inline @font-face rules, so exported text keeps its webfonts. -->
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Patrick+Hand&family=Merriweather:ital,wght@0,400;0,700;1,400&family=Fira+Code:wght@400;600&display=swap"
       rel="stylesheet"
+      crossorigin="anonymous"
     />
   </head>
   <body>
