@@ -3,7 +3,7 @@ import {
   Plus, Type, Trash2, Layers, StickyNote, Sparkles, Loader2, Calendar,
   Link as LinkIcon, MessageCircle, BookOpen, ListTodo, Crown, Zap,
   LayoutTemplate, PenLine, Eye, EyeOff, Download, Upload, Settings, Smile,
-  Timer, ZoomIn, ZoomOut, BarChart3, LocateFixed, Undo2, Redo2,
+  Timer, ZoomIn, ZoomOut, BarChart3, LocateFixed, Undo2, Redo2, Flower2, Sprout,
 } from "lucide-react";
 
 import { generateId, normalizeDayData, safeContent, todayKey, calculateStreak } from "./utils/helpers";
@@ -14,6 +14,7 @@ import { mirrorReminderState, maybeNotify } from "./services/reminders";
 import InstallPrompt from "./components/InstallPrompt";
 import { LEVELS } from "./constants/levels";
 import { TEMPLATES } from "./constants/templates";
+import { buildStarterBoard } from "./constants/onboarding";
 
 import ToolbarButton from "./components/ToolbarButton";
 import BoardItem from "./components/BoardItem";
@@ -29,6 +30,8 @@ import CalendarDayModal from "./components/modals/CalendarDayModal";
 import ReviewModal from "./components/modals/ReviewModal";
 import ImageModal from "./components/modals/ImageModal";
 import ConfirmModal from "./components/modals/ConfirmModal";
+import OnboardingModal from "./components/modals/OnboardingModal";
+import BloomGarden from "./components/BloomGarden";
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 3;
@@ -55,6 +58,16 @@ export default function App() {
   // Ledger of habit-days that already paid XP ("itemId|dateKey" -> ts).
   // Prevents farming via done→undone→done toggles or note-edit re-saves.
   const [awardedDays, setAwardedDays] = useState({});
+
+  // ─ Board bloom: local calendar day, ticked once a minute so a session that
+  // crosses midnight resolves yesterday's charge without a reload. ─
+  const [today, setToday] = useState(() => todayKey());
+  useEffect(() => {
+    const iv = setInterval(() => setToday((t) => (todayKey() === t ? t : todayKey())), 60000);
+    return () => clearInterval(iv);
+  }, []);
+  // Celebration toast payload: the new garden total after a charge blooms.
+  const [bloomToast, setBloomToast] = useState(null);
 
   // Pan & zoom: world coords -> screen via translate(view.x, view.y) scale(view.zoom)
   const [view, setView] = useState({ x: 0, y: 0, zoom: 1 });
@@ -204,7 +217,11 @@ export default function App() {
     const data = StorageService.load();
     if (data) {
       setItems(data.items || []);
-      setBoardConfig(data.boardConfig || { backgroundColor: "#f3f4f6" });
+      const bc = data.boardConfig || { backgroundColor: "#f3f4f6" };
+      // Anyone with an existing board predates (or already passed) onboarding —
+      // stamp the flag so deleting every item later can never summon the wizard.
+      if ((data.items || []).length > 0 && !bc.onboardedAt) bc.onboardedAt = Date.now();
+      setBoardConfig(bc);
       setUserXp(data.profile?.xp || 0);
       setUserLevel(data.profile?.level || 1);
       setAwardedDays(data.profile?.awardedDays || {});
@@ -395,16 +412,16 @@ export default function App() {
 
   // "Find my board": fit every item into the viewport. The rescue hatch for
   // an infinite canvas — works no matter how lost the view is.
-  const fitView = () => {
+  const fitViewTo = (list) => {
     const br = boardRef.current?.getBoundingClientRect();
-    if (!br || items.length === 0) {
+    if (!br || list.length === 0) {
       resetView();
       return;
     }
-    const minX = Math.min(...items.map((i) => i.x));
-    const minY = Math.min(...items.map((i) => i.y));
-    const maxX = Math.max(...items.map((i) => i.x + i.width));
-    const maxY = Math.max(...items.map((i) => i.y + i.height));
+    const minX = Math.min(...list.map((i) => i.x));
+    const minY = Math.min(...list.map((i) => i.y));
+    const maxX = Math.max(...list.map((i) => i.x + i.width));
+    const maxY = Math.max(...list.map((i) => i.y + i.height));
     const pad = 60;
     const zoom = Math.min(
       1.25, // don't blow a tiny board up past readable scale
@@ -416,6 +433,7 @@ export default function App() {
       y: br.height / 2 - ((minY + maxY) / 2) * zoom,
     });
   };
+  const fitView = () => fitViewTo(items);
 
   // Cozy first frame: when the app opens onto a board that already has content, fit it into view
   // instead of dropping the user onto an empty, too-wide expanse. Runs once after load.
@@ -581,7 +599,8 @@ export default function App() {
   const modalOpenRef = useRef(false);
   modalOpenRef.current =
     showImageModal || showAIModal || showStickerModal || showChatModal || showLibraryModal ||
-    showTemplateModal || showSettingsModal || showReviewModal || !!calendarModalData || confirmModal.isOpen;
+    showTemplateModal || showSettingsModal || showReviewModal || !!calendarModalData || confirmModal.isOpen ||
+    (items.length === 0 && !boardConfig.onboardedAt); // onboarding wizard is up
 
   useEffect(() => {
     if (!loaded || viewMode !== "vision") return;
@@ -639,6 +658,24 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [loaded, viewMode, undo, redo, duplicateItem, pushHistory]);
 
+  // ─ First-run onboarding ─
+  // Shows only for a truly fresh install: zero items AND never onboarded.
+  // Existing users, imports, and restores all carry (or defensively receive)
+  // onboardedAt, so this can never retrigger for them.
+  const showOnboarding = loaded && items.length === 0 && !boardConfig.onboardedAt;
+
+  const handleOnboardingCreate = (areaIds, backgroundColor) => {
+    const starter = buildStarterBoard(areaIds);
+    resetHistory();
+    setItems(starter);
+    setBoardConfig((prev) => ({ ...prev, backgroundColor, onboardedAt: Date.now() }));
+    setViewMode("vision"); // mobile defaults to focus — show them the board they just made
+    // Double rAF: let the vision canvas mount before framing the new items.
+    requestAnimationFrame(() => requestAnimationFrame(() => fitViewTo(starter)));
+  };
+
+  const handleOnboardingSkip = () => setBoardConfig((prev) => ({ ...prev, onboardedAt: Date.now() }));
+
   // ─ Templates / clear / export / import ─
   const requestClearBoard = () => {
     setConfirmModal({
@@ -648,7 +685,10 @@ export default function App() {
         SnapshotService.take(currentState(), "before-clear");
         resetHistory();
         setItems([]);
-        setBoardConfig({ backgroundColor: "#f3f4f6" });
+        // Clearing the board is a content reset, not an account reset: keep theme,
+        // the onboarding flag (never re-show the wizard), and the bloom garden.
+        // The pending charge is dropped — its trackers are gone.
+        setBoardConfig((prev) => ({ backgroundColor: "#f3f4f6", theme: prev.theme, onboardedAt: prev.onboardedAt || Date.now(), blooms: prev.blooms }));
         setConfirmModal({ isOpen: false });
       },
     });
@@ -660,7 +700,7 @@ export default function App() {
       resetHistory();
       const tpl = TEMPLATES[key];
       setItems(tpl.items.map((i) => ({ ...i, id: generateId() })));
-      setBoardConfig(tpl.config);
+      setBoardConfig((prev) => ({ ...tpl.config, theme: prev.theme, onboardedAt: prev.onboardedAt || Date.now(), blooms: prev.blooms, bloomCharged: prev.bloomCharged }));
       setShowTemplateModal(false);
       resetView();
       setConfirmModal({ isOpen: false });
@@ -691,7 +731,8 @@ export default function App() {
         SnapshotService.take(currentState(), "before-restore");
         resetHistory();
         setItems(data.items || []);
-        setBoardConfig(data.boardConfig || { backgroundColor: "#f3f4f6" });
+        // Defensive onboardedAt: restoring an older snapshot must never resurrect the wizard.
+        setBoardConfig({ backgroundColor: "#f3f4f6", ...(data.boardConfig || {}), onboardedAt: data.boardConfig?.onboardedAt || Date.now() });
         if (data.profile) {
           setUserXp(data.profile.xp || 0);
           setUserLevel(data.profile.level || 1);
@@ -714,7 +755,9 @@ export default function App() {
           SnapshotService.take(currentState(), "before-import");
           resetHistory();
           setItems(data.items);
-          setBoardConfig(data.boardConfig || { backgroundColor: "#f3f4f6" });
+          // Defensive onboardedAt: an import (even of an empty pre-onboarding export)
+          // must never retrigger the first-run wizard.
+          setBoardConfig({ backgroundColor: "#f3f4f6", ...(data.boardConfig || {}), onboardedAt: data.boardConfig?.onboardedAt || Date.now() });
           if (data.profile) {
             setUserXp(data.profile.xp || 0);
             setUserLevel(data.profile.level || 1);
@@ -803,16 +846,50 @@ export default function App() {
 
   // ─ Board brightness tied to today's habit completion ─
   const trackers = items.filter((i) => i.type === "tracker");
-  const completionRate =
-    trackers.reduce((acc, item) => {
-      try {
-        const data = JSON.parse(item.content || "{}");
-        return acc + (normalizeDayData(data[todayKey()]).status === "done" ? 1 : 0);
-      } catch {
-        return acc;
-      }
-    }, 0) / (trackers.length || 1);
+  const doneTodayCount = trackers.reduce((acc, item) => {
+    try {
+      const data = JSON.parse(item.content || "{}");
+      return acc + (normalizeDayData(data[today]).status === "done" ? 1 : 0);
+    } catch {
+      return acc;
+    }
+  }, 0);
+  const completionRate = doneTodayCount / (trackers.length || 1);
   const boardBrightness = 0.92 + completionRate * 0.15;
+
+  // ─ Board bloom: the daily-return loop (positive-only, no XP) ─
+  // Completing ALL of today's habits "charges" today. On the first render of a
+  // later day (fresh load or midnight rollover), the charge resolves into a
+  // permanent bloom in the garden. Partial days simply don't charge — nothing
+  // is ever lost, nothing ever decays.
+  const allDoneToday = trackers.length > 0 && doneTodayCount === trackers.length;
+  const bloomResolvedRef = useRef(null); // guards against double-resolve (StrictMode / re-renders)
+  useEffect(() => {
+    if (!loaded) return;
+    const charged = boardConfig.bloomCharged;
+    // ISO local-date strings compare correctly as strings. Any charge from an
+    // earlier day blooms — a multi-day gap still counts (once), never punishes.
+    if (charged && charged < today) {
+      if (bloomResolvedRef.current === charged) return;
+      bloomResolvedRef.current = charged;
+      const newCount = (boardConfig.blooms || 0) + 1;
+      setBoardConfig((prev) => ({ ...prev, blooms: (prev.blooms || 0) + 1, bloomCharged: null }));
+      setBloomToast(newCount);
+    } else if (!charged && allDoneToday) {
+      setBoardConfig((prev) => (prev.bloomCharged ? prev : { ...prev, bloomCharged: today }));
+    } else if (charged === today && !allDoneToday) {
+      // Un-checking a habit (or deleting the last tracker) after charging keeps
+      // the state honest: today is no longer fully complete, so no charge.
+      setBoardConfig((prev) => ({ ...prev, bloomCharged: null }));
+    }
+  }, [loaded, today, allDoneToday, boardConfig.bloomCharged, boardConfig.blooms]);
+
+  // Celebration toast auto-dismisses.
+  useEffect(() => {
+    if (bloomToast == null) return;
+    const t = setTimeout(() => setBloomToast(null), 6000);
+    return () => clearTimeout(t);
+  }, [bloomToast]);
 
   const backupOverdue = items.length >= 8 && (!lastExportAt || Date.now() - lastExportAt > 7 * 86400000);
 
@@ -1024,6 +1101,9 @@ export default function App() {
                     }}
                   />
                 )}
+                {/* Bloom garden: permanent, positive-only record of fully-completed days,
+                    planted along the bottom edge of the home zone. */}
+                {homeZone && (boardConfig.blooms || 0) > 0 && <BloomGarden count={boardConfig.blooms} zone={homeZone} />}
                 {items.map((item) => (
                   <div key={item.id} className="board-item contents">
                     <BoardItem
@@ -1078,6 +1158,14 @@ export default function App() {
                       </button>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* Ambient "charged" pill: today is fully complete — tomorrow it blooms. */}
+              {!zenMode && boardConfig.bloomCharged === today && (
+                <div className="absolute bottom-3 left-3 z-30 flex items-center gap-1.5 bg-white/90 dark:bg-slate-800/90 backdrop-blur rounded-full shadow-lg border border-emerald-200 dark:border-emerald-800 px-3 py-1.5 pointer-events-none">
+                  <Sprout size={13} className="text-emerald-500 dark:text-emerald-400" />
+                  <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">Charged for tomorrow</span>
                 </div>
               )}
 
@@ -1226,6 +1314,21 @@ export default function App() {
           </>
         )}
         {confirmModal.isOpen && <ConfirmModal message={confirmModal.message} onConfirm={confirmModal.onConfirm} onCancel={() => setConfirmModal({ isOpen: false })} />}
+        {/* First-run wizard — rendered outside the vision/focus split so a phone
+            (which defaults to focus mode) still gets onboarded. */}
+        {showOnboarding && <OnboardingModal onCreate={handleOnboardingCreate} onSkip={handleOnboardingSkip} />}
+        {/* Bloom celebration: yesterday's charge resolved into a permanent garden bloom. */}
+        {bloomToast != null && (
+          <button
+            onClick={() => setBloomToast(null)}
+            className="fixed top-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-white/95 dark:bg-slate-800/95 backdrop-blur rounded-full shadow-xl border border-pink-200 dark:border-pink-900 px-4 py-2 animate-bounce"
+          >
+            <Flower2 size={16} className="text-pink-500 dark:text-pink-400" />
+            <span className="text-xs font-bold text-gray-700 dark:text-slate-200">
+              Yesterday's effort bloomed — garden: {bloomToast} {bloomToast === 1 ? "bloom" : "blooms"}
+            </span>
+          </button>
+        )}
       </div>
       <InstallPrompt />
     </div>
