@@ -4,9 +4,10 @@ import {
   Link as LinkIcon, MessageCircle, BookOpen, ListTodo, Crown, Zap,
   LayoutTemplate, PenLine, Eye, EyeOff, Download, Upload, Settings, Smile,
   Timer, ZoomIn, ZoomOut, BarChart3, LocateFixed, Undo2, Redo2, Flower2, Sprout,
+  Clapperboard, ImageDown,
 } from "lucide-react";
 
-import { generateId, normalizeDayData, safeContent, todayKey, calculateStreak } from "./utils/helpers";
+import { generateId, normalizeDayData, safeContent, todayKey, calculateStreak, fileToDataUrl } from "./utils/helpers";
 import { StorageService, SnapshotService, requestPersistence } from "./services/storage";
 import { callAI, buildBoardContext, COACH_SYSTEM_WITH_BOARD } from "./services/ai";
 import { generateWeeklyReview } from "./services/review";
@@ -445,6 +446,151 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded]);
 
+  // ─ Toast (transient status line: export progress errors, paste failures) ─
+  const [toast, setToast] = useState(null);
+  const toastTimerRef = useRef(null);
+  const showToast = useCallback((msg) => {
+    setToast(msg);
+    clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), 3500);
+  }, []);
+
+  // ─ "Vision movie": ambient full-screen tour of the board ─
+  // Chrome slides away (zen-mode pattern), then a rAF loop glides the existing
+  // `view` state from item to item — ease-in-out flight, then a slow Ken Burns
+  // push-in — looping until Esc/click/tap restores the prior view and chrome.
+  const [playback, setPlayback] = useState(null); // { order: [itemIds] } while touring
+  const [playIndex, setPlayIndex] = useState(0);
+  const [playFade, setPlayFade] = useState(false); // reduced-motion crossfade veil
+  const playbackRef = useRef(null);
+  playbackRef.current = playback;
+  const prePlaybackViewRef = useRef(null);
+
+  const startPlayback = () => {
+    if (itemsRef.current.length === 0) return;
+    prePlaybackViewRef.current = viewRef.current;
+    // Tour order: nearest-neighbor walk seeded at the top-left-most item, so the
+    // camera wanders the board like a gallery visit instead of teleporting.
+    const rem = [...itemsRef.current];
+    rem.sort((a, b) => a.x + a.y - (b.x + b.y));
+    const order = [rem.shift()];
+    while (rem.length) {
+      const cur = order[order.length - 1];
+      let bi = 0;
+      let bd = Infinity;
+      for (let i = 0; i < rem.length; i++) {
+        const d = Math.hypot(
+          rem[i].x + rem[i].width / 2 - (cur.x + cur.width / 2),
+          rem[i].y + rem[i].height / 2 - (cur.y + cur.height / 2)
+        );
+        if (d < bd) { bd = d; bi = i; }
+      }
+      order.push(rem.splice(bi, 1)[0]);
+    }
+    setSelectedId(null);
+    setShowProps(false);
+    setShowAddMenu(false);
+    setDragState({ isDragging: false }); // hard-stop any in-progress item drag
+    setPanState(null);
+    setPlayIndex(0);
+    setPlayback({ order: order.map((i) => i.id) });
+  };
+
+  const stopPlayback = useCallback(() => {
+    setPlayback(null);
+    setPlayFade(false);
+    if (prePlaybackViewRef.current) setView(prePlaybackViewRef.current);
+  }, []);
+
+  // The tour loop. ~5s per stop: 1.6s eased flight + 3.4s gentle push-in.
+  // Reduced motion: no gliding — a brief veil fade over an instant reframe.
+  useEffect(() => {
+    if (!playback) return;
+    const reduced = !!window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    let raf = 0;
+    let timer = 0;
+    let cancelled = false;
+    const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+    const targetView = (it) => {
+      const br = boardRef.current?.getBoundingClientRect();
+      if (!br) return viewRef.current;
+      const pad = 110;
+      const zoom = Math.min(
+        1.6, // don't blow small stickers up to wall-size
+        Math.max(MIN_ZOOM, Math.min(br.width / (it.width + pad * 2), br.height / (it.height + pad * 2)))
+      );
+      return { zoom, x: br.width / 2 - (it.x + it.width / 2) * zoom, y: br.height / 2 - (it.y + it.height / 2) * zoom };
+    };
+    const step = (i) => {
+      if (cancelled) return;
+      setPlayIndex(i);
+      const next = () => step((i + 1) % playback.order.length);
+      const it = itemsRef.current.find((x) => x.id === playback.order[i]);
+      if (!it) { timer = setTimeout(next, 50); return; } // item deleted mid-tour
+      const to = targetView(it);
+      if (reduced) {
+        setPlayFade(true);
+        timer = setTimeout(() => {
+          if (cancelled) return;
+          setView(to);
+          setPlayFade(false);
+          timer = setTimeout(next, 4400);
+        }, 350);
+        return;
+      }
+      const from = { ...viewRef.current };
+      const TRANS = 1600;
+      const HOLD = 3400;
+      const kb = Math.min(MAX_ZOOM / to.zoom, 1.06); // Ken Burns amplitude, zoom-capped
+      const t0 = performance.now();
+      const tick = (now) => {
+        if (cancelled) return;
+        const el = now - t0;
+        if (el < TRANS) {
+          const t = easeInOutCubic(el / TRANS);
+          setView({
+            zoom: from.zoom + (to.zoom - from.zoom) * t,
+            x: from.x + (to.x - from.x) * t,
+            y: from.y + (to.y - from.y) * t,
+          });
+          raf = requestAnimationFrame(tick);
+        } else if (el < TRANS + HOLD) {
+          const t = (el - TRANS) / HOLD;
+          const z = to.zoom * (1 + (kb - 1) * t);
+          const br = boardRef.current?.getBoundingClientRect();
+          const cx = br ? br.width / 2 : 400;
+          const cy = br ? br.height / 2 : 300;
+          const scale = z / to.zoom;
+          setView({ zoom: z, x: cx - (cx - to.x) * scale, y: cy - (cy - to.y) * scale });
+          raf = requestAnimationFrame(tick);
+        } else {
+          next();
+        }
+      };
+      raf = requestAnimationFrame(tick);
+    };
+    step(0);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+    };
+  }, [playback]);
+
+  // Esc exits the movie (registered only while touring; the main shortcut
+  // handler stands down during playback).
+  useEffect(() => {
+    if (!playback) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        stopPlayback();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [playback, stopPlayback]);
+
   // ─ Add item (centered in the current viewport, in world coords) ─
   const addItem = (type, content = "", extraProps = {}) => {
     const br = boardRef.current?.getBoundingClientRect();
@@ -608,6 +754,7 @@ export default function App() {
       const t = e.target;
       if (t instanceof Element && (t.closest("input, textarea, select") || t.isContentEditable || t.closest('[contenteditable="true"]'))) return;
       if (modalOpenRef.current) return;
+      if (playbackRef.current) return; // vision movie owns the keyboard (its own effect handles Esc)
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
 
@@ -676,6 +823,104 @@ export default function App() {
 
   const handleOnboardingSkip = () => setBoardConfig((prev) => ({ ...prev, onboardedAt: Date.now() }));
 
+  // ─ Frictionless ingestion: clipboard paste + OS drag-and-drop ─
+  // addItem closes over live view/items state; window-level handlers reach the
+  // latest render through this ref instead of re-subscribing every render.
+  const addItemRef = useRef(null);
+  addItemRef.current = addItem;
+
+  // Add an image item sized to its natural aspect ratio (280 wide). Centered at
+  // (wx, wy) world coords when given, else at the viewport center via addItem.
+  const addImageItem = useCallback((src, wx = null, wy = null) => {
+    const img = new Image();
+    const place = (w, h) => {
+      const extra = { width: w, height: h };
+      if (wx != null && wy != null) {
+        extra.x = wx - w / 2;
+        extra.y = wy - h / 2;
+      }
+      addItemRef.current("image", src, extra);
+    };
+    img.onload = () => place(280, Math.max(90, Math.min(420, Math.round((280 * img.height) / img.width))));
+    img.onerror = () => place(220, 160);
+    img.src = src;
+  }, []);
+
+  // Clipboard paste (vision mode only). Image blob → downscaled image item at the
+  // viewport center; plain text (URL or not — no unfurl this round) → text item.
+  // Never intercepts paste into inputs/textareas or while a modal is up.
+  useEffect(() => {
+    if (!loaded || viewMode !== "vision") return;
+    const onPaste = async (e) => {
+      if (modalOpenRef.current || playbackRef.current) return;
+      const t = e.target;
+      if (t instanceof Element && (t.closest("input, textarea, select") || t.isContentEditable || t.closest('[contenteditable="true"]'))) return;
+      const cd = e.clipboardData;
+      if (!cd) return;
+      const imgEntry = [...cd.items].find((it) => it.type.startsWith("image/"));
+      if (imgEntry) {
+        e.preventDefault();
+        const file = imgEntry.getAsFile();
+        if (!file) return;
+        try {
+          addImageItem(await fileToDataUrl(file));
+        } catch {
+          showToast("Couldn't read that image from the clipboard");
+        }
+        return;
+      }
+      const text = (cd.getData("text/plain") || "").trim();
+      if (!text) return;
+      e.preventDefault();
+      addItemRef.current("text", text.slice(0, 2000));
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [loaded, viewMode, addImageItem, showToast]);
+
+  // Drag-and-drop from the OS: image files land where they're dropped (world
+  // coords), multiples fan out with slight offsets. `dragDepthRef` counts
+  // enter/leave pairs so child elements don't flicker the highlight.
+  const [dropActive, setDropActive] = useState(false);
+  const dragDepthRef = useRef(0);
+  const dragHasFiles = (e) => !!e.dataTransfer && [...e.dataTransfer.types].includes("Files");
+  const handleDragEnter = (e) => {
+    if (!dragHasFiles(e) || playbackRef.current) return;
+    e.preventDefault();
+    dragDepthRef.current += 1;
+    setDropActive(true);
+  };
+  const handleDragOver = (e) => {
+    if (!dragHasFiles(e) || playbackRef.current) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+  const handleDragLeave = (e) => {
+    if (!dragHasFiles(e)) return;
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDropActive(false);
+  };
+  const handleDrop = async (e) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    dragDepthRef.current = 0;
+    setDropActive(false);
+    if (playbackRef.current) return;
+    const files = [...e.dataTransfer.files].filter((f) => f.type.startsWith("image/"));
+    if (files.length === 0) return;
+    const rect = boardRef.current?.getBoundingClientRect();
+    const v = viewRef.current;
+    const wx = rect ? (e.clientX - rect.left - v.x) / v.zoom : 300;
+    const wy = rect ? (e.clientY - rect.top - v.y) / v.zoom : 200;
+    for (let i = 0; i < files.length; i++) {
+      try {
+        addImageItem(await fileToDataUrl(files[i]), wx + i * 36, wy + i * 36);
+      } catch {
+        showToast(`Couldn't add "${files[i].name}" — not a readable image`);
+      }
+    }
+  };
+
   // ─ Templates / clear / export / import ─
   const requestClearBoard = () => {
     setConfirmModal({
@@ -719,6 +964,58 @@ export default function App() {
     a.click();
     URL.revokeObjectURL(url);
     setLastExportAt(Date.now());
+  };
+
+  // ─ PNG export: snapshot the board as an image ─
+  // Renders items into an off-screen "stage" at fit-to-content bounds (zen-mode
+  // BoardItems: no selection rings/handles/glow; dot grid included — it's part
+  // of the look) and rasterizes it with html-to-image, loaded lazily so the
+  // library stays out of the main chunk.
+  const [pngStage, setPngStage] = useState(null); // { w, h, offX, offY } while capturing
+  const [isExportingPng, setIsExportingPng] = useState(false);
+  const pngStageRef = useRef(null);
+
+  const handleExportPng = async () => {
+    if (isExportingPng || itemsRef.current.length === 0) return;
+    const its = itemsRef.current;
+    setIsExportingPng(true);
+    try {
+      const { toPng } = await import("html-to-image");
+      const pad = 80;
+      const minX = Math.min(...its.map((i) => i.x));
+      const minY = Math.min(...its.map((i) => i.y));
+      const maxX = Math.max(...its.map((i) => i.x + i.width));
+      const maxY = Math.max(...its.map((i) => i.y + i.height));
+      const w = Math.ceil(maxX - minX + pad * 2);
+      const h = Math.ceil(maxY - minY + pad * 2);
+      // Browsers cap canvas dimensions (~16k px per side) — on huge boards,
+      // trade pixel density for a capture that actually succeeds.
+      const pixelRatio = Math.min(2, 16000 / Math.max(w, h));
+      setPngStage({ w, h, offX: pad - minX, offY: pad - minY });
+      // Wait for the off-screen stage to mount before capturing.
+      await new Promise((resolve) => {
+        const poll = () => (pngStageRef.current ? resolve() : requestAnimationFrame(poll));
+        requestAnimationFrame(poll);
+      });
+      const dataUrl = await toPng(pngStageRef.current, {
+        width: w,
+        height: h,
+        pixelRatio,
+        backgroundColor: canvasBg,
+        // Neutralize the stage's off-screen positioning on the clone.
+        style: { left: "0px", top: "0px" },
+      });
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = `dreamcanvas-${new Date().toISOString().slice(0, 10)}.png`;
+      a.click();
+    } catch (err) {
+      console.error("PNG export failed", err);
+      showToast("Image export failed — try again, or use the JSON export as a backup");
+    } finally {
+      setPngStage(null);
+      setIsExportingPng(false);
+    }
   };
 
   const handleRestoreSnapshot = async (id) => {
@@ -901,6 +1198,9 @@ export default function App() {
     isDark && ["#f3f4f6", "#ffffff"].includes(boardConfig.backgroundColor) ? "#0f172a" : boardConfig.backgroundColor;
   const canvasIsDark = ["#0f172a", "#1f2937"].includes(canvasBg);
 
+  // Chrome slides away in zen mode and during vision-movie playback (same pattern).
+  const chromeHidden = zenMode || !!playback;
+
   const currentLevelInfo = LEVELS.find((l) => l.level === userLevel) || LEVELS[0];
   const nextLevelInfo = LEVELS.find((l) => l.level === userLevel + 1);
   const xpForNext = nextLevelInfo ? nextLevelInfo.minXp : userXp + 1000;
@@ -918,7 +1218,7 @@ export default function App() {
       {/* HEADER */}
       <header
         className={`flex-none bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 z-20 px-4 h-14 flex items-center justify-between shadow-sm transition-transform ${
-          zenMode ? "-translate-y-full absolute w-full" : ""
+          chromeHidden ? "-translate-y-full absolute w-full" : ""
         }`}
       >
         <div className="flex items-center gap-3">
@@ -964,6 +1264,14 @@ export default function App() {
             <Upload size={16} />
           </button>
           <button
+            onClick={handleExportPng}
+            disabled={isExportingPng || items.length === 0}
+            className="p-1.5 text-gray-400 dark:text-slate-500 enabled:hover:text-purple-500 enabled:hover:bg-purple-50 dark:enabled:hover:bg-purple-900/30 rounded-lg disabled:opacity-40"
+            title={isExportingPng ? "Rendering your board…" : "Export board as image (PNG)"}
+          >
+            {isExportingPng ? <Loader2 size={16} className="animate-spin text-purple-500" /> : <ImageDown size={16} />}
+          </button>
+          <button
             onClick={handleExport}
             className="relative p-1.5 text-gray-400 dark:text-slate-500 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg"
             title={backupOverdue ? "It's been a while — export a backup of your board" : "Export board (JSON)"}
@@ -988,7 +1296,7 @@ export default function App() {
       </header>
 
       <div className="flex-1 flex overflow-hidden relative">
-        {viewMode === "vision" && (
+        {viewMode === "vision" && !playback && (
           <button
             onClick={() => setZenMode(!zenMode)}
             className={`absolute top-3 right-3 z-50 p-1.5 rounded-full shadow-lg transition-all ${
@@ -1017,7 +1325,7 @@ export default function App() {
             {/* TOOLBAR */}
             <div
               className={`w-14 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800 flex flex-col items-center py-3 gap-2 shadow-sm z-20 transition-transform ${
-                zenMode ? "-translate-x-full absolute h-full" : ""
+                chromeHidden ? "-translate-x-full absolute h-full" : ""
               }`}
             >
               <ToolbarButton icon={Plus} label="Add" onClick={() => setShowAddMenu(!showAddMenu)} active={showAddMenu} />
@@ -1056,6 +1364,7 @@ export default function App() {
               <ToolbarButton icon={Sparkles} label="AI" onClick={() => { setShowAIModal(true); setAiPrompt(""); setAiResults(null); }} />
               <ToolbarButton icon={MessageCircle} label="Coach" onClick={() => setShowChatModal(true)} />
               <ToolbarButton icon={BarChart3} label="Review" onClick={handleOpenReview} />
+              <ToolbarButton icon={Clapperboard} label="Movie" onClick={startPlayback} disabled={items.length === 0} />
               <ToolbarButton icon={Smile} label="Stickers" onClick={() => setShowStickerModal(true)} />
               <ToolbarButton icon={BookOpen} label="Library" onClick={() => setShowLibraryModal(true)} />
               <div className="w-8 h-px bg-gray-200 dark:bg-slate-700 my-1" />
@@ -1072,6 +1381,10 @@ export default function App() {
                 filter: `brightness(${boardBrightness})`,
               }}
               onPointerDown={handleBoardPointerDown}
+              onDragEnter={handleDragEnter}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
             >
               {/* Dot grid as its own layer so it can fade toward the edges — keeps the infinite
                   canvas from reading as a cold endless void while still scrolling with the view. */}
@@ -1133,6 +1446,14 @@ export default function App() {
                   )}
                 </div>
               )}
+              {/* Full-canvas drop highlight while dragging image files over the board */}
+              {dropActive && (
+                <div className="absolute inset-2 z-40 rounded-2xl border-2 border-dashed border-purple-500 dark:border-purple-400 bg-purple-500/5 dark:bg-purple-400/10 pointer-events-none flex items-center justify-center">
+                  <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur rounded-full px-4 py-2 text-sm font-medium text-purple-700 dark:text-purple-300 shadow-lg border border-purple-200/60 dark:border-purple-700/60">
+                    Drop images to add them here
+                  </div>
+                </div>
+              )}
               {items.length === 0 && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none p-4">
                   <div className="pointer-events-auto text-center max-w-sm w-full bg-white/80 dark:bg-slate-900/80 backdrop-blur rounded-2xl border border-gray-200/80 dark:border-slate-700/80 shadow-xl p-8">
@@ -1170,7 +1491,7 @@ export default function App() {
               )}
 
               {/* Zoom controls */}
-              {!zenMode && (
+              {!chromeHidden && (
                 <div className="absolute bottom-3 right-3 z-30 flex items-center gap-1 bg-white/90 dark:bg-slate-800/90 backdrop-blur rounded-full shadow-lg border border-gray-200 dark:border-slate-700 px-1.5 py-1">
                   <button
                     onClick={undo}
@@ -1205,6 +1526,49 @@ export default function App() {
                 </div>
               )}
             </div>
+
+            {/* VISION MOVIE overlay — sits above the canvas (blocks all item/pan/zoom
+                input while touring); any tap/click or Esc exits and restores the view */}
+            {playback && (
+              <div
+                className="absolute inset-0 z-40 cursor-pointer select-none"
+                style={{ touchAction: "none" }}
+                onPointerDown={stopPlayback}
+              >
+                {/* Reduced-motion crossfade veil */}
+                <div
+                  className={`absolute inset-0 pointer-events-none transition-opacity duration-300 ${playFade ? "opacity-100" : "opacity-0"}`}
+                  style={{ backgroundColor: canvasBg }}
+                />
+                {/* Progress hairline */}
+                <div className="absolute top-0 left-0 right-0 h-0.5 bg-black/10 dark:bg-white/10 pointer-events-none">
+                  <div
+                    className="h-full bg-purple-500/90 transition-all duration-700 ease-out"
+                    style={{ width: `${((playIndex + 1) / playback.order.length) * 100}%` }}
+                  />
+                </div>
+                {/* Stop counter — dots for small boards, n/m for big ones. Touch-friendly pill. */}
+                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-white/85 dark:bg-slate-900/85 backdrop-blur rounded-full shadow-lg border border-gray-200/70 dark:border-slate-700/70 px-5 py-3 pointer-events-none">
+                  {playback.order.length <= 12 ? (
+                    <div className="flex items-center gap-1.5">
+                      {playback.order.map((id, i) => (
+                        <span
+                          key={id}
+                          className={`rounded-full transition-all duration-300 ${
+                            i === playIndex ? "w-2.5 h-2.5 bg-purple-600 dark:bg-purple-400" : "w-1.5 h-1.5 bg-gray-300 dark:bg-slate-600"
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-xs font-bold text-gray-600 dark:text-slate-300 tabular-nums">
+                      {playIndex + 1} / {playback.order.length}
+                    </span>
+                  )}
+                  <span className="text-[10px] text-gray-400 dark:text-slate-500">tap or Esc to exit</span>
+                </div>
+              </div>
+            )}
 
             {/* PROPERTIES PANEL — opened via the selected item's gear button */}
             {selectedItem && showProps && !calendarModalData && !zenMode && (
@@ -1330,6 +1694,48 @@ export default function App() {
           </button>
         )}
       </div>
+
+      {/* PNG EXPORT STAGE — off-screen, fit-to-content render of the board.
+          zenMode BoardItems: no selection rings, handles, or streak glow.
+          The dot grid is re-drawn here aligned to world coords (it's part of the look). */}
+      {pngStage && (
+        <div
+          ref={pngStageRef}
+          aria-hidden="true"
+          className="fixed pointer-events-none"
+          style={{ left: "-100000px", top: 0, width: pngStage.w, height: pngStage.h, backgroundColor: canvasBg, overflow: "hidden" }}
+        >
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `radial-gradient(${canvasIsDark ? "#475569" : "#cbd5e1"} 1px, transparent 1px)`,
+              backgroundSize: "20px 20px",
+              backgroundPosition: `${pngStage.offX % 20}px ${pngStage.offY % 20}px`,
+            }}
+          />
+          <div className="absolute top-0 left-0" style={{ transform: `translate(${pngStage.offX}px, ${pngStage.offY}px)` }}>
+            {items.map((item) => (
+              <BoardItem
+                key={`export-${item.id}`}
+                item={item}
+                isSelected={false}
+                zenMode={true}
+                zoom={1}
+                onSelect={() => {}}
+                onUpdate={() => {}}
+                onDayClick={() => {}}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* TOAST — transient status line (export failures, paste errors) */}
+      {toast && (
+        <div className="fixed bottom-16 left-1/2 -translate-x-1/2 z-[70] max-w-[90vw] bg-gray-900/95 dark:bg-slate-800/95 text-white dark:text-slate-100 text-sm px-4 py-2.5 rounded-full shadow-xl backdrop-blur border border-white/10 dark:border-slate-600/50">
+          {toast}
+        </div>
+      )}
       <InstallPrompt />
     </div>
   );

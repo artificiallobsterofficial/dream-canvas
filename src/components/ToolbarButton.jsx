@@ -1,7 +1,8 @@
-const ToolbarButton = ({ icon: Icon, label, onClick, active = false, special = false }) => (
+const ToolbarButton = ({ icon: Icon, label, onClick, active = false, special = false, disabled = false }) => (
   <button
     onClick={onClick}
-    className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all w-full ${
+    disabled={disabled}
+    className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all w-full disabled:opacity-35 disabled:cursor-not-allowed ${
       active
         ? "bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300"
         : special
