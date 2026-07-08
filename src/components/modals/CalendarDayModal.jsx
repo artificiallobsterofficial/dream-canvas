@@ -1,6 +1,63 @@
-import { Clock, X, CheckCircle2, Calendar, Eraser, Repeat } from "lucide-react";
+import { useState } from "react";
+import { Clock, X, CheckCircle2, Calendar, Eraser, Repeat, Plus, CalendarClock } from "lucide-react";
+import { generateId, sortDayEvents } from "../../utils/helpers";
 
-const CalendarDayModal = ({ data, dateStr, multiCount, repeat, repeatExtra, onToggleRepeat, onUpdateStatus, onUpdateEvent, onClear, onClose }) => (
+// Timed entries for one day, phone-calendar style. Single-day mode only —
+// duplicating the same timed event across a range is rarely what you want.
+const DayEvents = ({ events, onUpdateEvents }) => {
+  const [time, setTime] = useState("");
+  const [title, setTitle] = useState("");
+  const add = () => {
+    const t = title.trim();
+    if (!t) return;
+    onUpdateEvents(sortDayEvents([...events, { id: generateId(), time, title: t }]));
+    setTime("");
+    setTitle("");
+  };
+  return (
+    <div>
+      <label className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider block mb-1.5 flex items-center gap-1">
+        <CalendarClock size={11} /> Events
+      </label>
+      {events.length > 0 && (
+        <div className="space-y-1 mb-1.5">
+          {events.map((ev) => (
+            <div key={ev.id} className="flex items-center gap-2 bg-gray-50 dark:bg-slate-800/60 border border-gray-100 dark:border-slate-700 rounded-lg px-2 py-1">
+              <span className="font-mono text-[10px] font-bold text-purple-600 dark:text-purple-400 w-10 flex-none">{ev.time || "—"}</span>
+              <span className="text-xs text-gray-700 dark:text-slate-200 flex-1 truncate">{ev.title}</span>
+              <button
+                onClick={() => onUpdateEvents(events.filter((e) => e.id !== ev.id))}
+                className="text-gray-300 dark:text-slate-600 hover:text-red-500 dark:hover:text-red-400 p-0.5"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-1.5">
+        <input type="time" className="dc-field text-xs p-1.5 w-24 flex-none" value={time} onChange={(e) => setTime(e.target.value)} />
+        <input
+          type="text"
+          className="dc-field text-xs p-1.5 flex-1 min-w-0"
+          placeholder="Dentist, call mom..."
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && add()}
+        />
+        <button
+          onClick={add}
+          disabled={!title.trim()}
+          className="p-1.5 rounded-lg bg-purple-600 text-white enabled:hover:bg-purple-700 disabled:opacity-30 flex-none"
+        >
+          <Plus size={14} />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const CalendarDayModal = ({ data, dateStr, multiCount, repeat, repeatExtra, onToggleRepeat, onUpdateStatus, onUpdateEvent, onUpdateEvents, onClear, onClose }) => (
   <div className="fixed inset-0 bg-black/20 backdrop-blur-[1px] z-50 flex items-center justify-center p-4">
     <div className="bg-white dark:bg-slate-900 dark:border dark:border-slate-700 rounded-xl shadow-2xl w-full max-w-sm p-4">
       <div className="flex justify-between items-center mb-3">
@@ -43,6 +100,7 @@ const CalendarDayModal = ({ data, dateStr, multiCount, repeat, repeatExtra, onTo
             </button>
           </div>
         </div>
+        {onUpdateEvents && !multiCount && <DayEvents events={data.events || []} onUpdateEvents={onUpdateEvents} />}
         <div>
           <label className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider block mb-1.5">Note</label>
           <textarea

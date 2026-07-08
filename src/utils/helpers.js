@@ -1,11 +1,14 @@
 export const generateId = () => Math.random().toString(36).substr(2, 9);
 
 export const normalizeDayData = (val) => {
-  if (!val) return { status: null, event: "" };
-  if (typeof val === "object") return { status: val.status || null, event: val.event || "" };
-  if (val === true) return { status: "done", event: "" };
-  return { status: val, event: "" };
+  if (!val) return { status: null, event: "", events: [] };
+  if (typeof val === "object") return { status: val.status || null, event: val.event || "", events: Array.isArray(val.events) ? val.events : [] };
+  if (val === true) return { status: "done", event: "", events: [] };
+  return { status: val, event: "", events: [] };
 };
+
+// Timed entries within a day, phone-calendar style. Untimed entries sort last.
+export const sortDayEvents = (events) => [...events].sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
 
 export const safeContent = (c) => {
   if (c === null || c === undefined) return "";

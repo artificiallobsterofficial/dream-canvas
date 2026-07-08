@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { Zap, StickyNote, Activity, CheckCircle2, ListTodo, PenLine, Shield, Flame, Snowflake, CalendarPlus, ArrowRight } from "lucide-react";
-import { normalizeDayData, safeContent, todayKey, calculateStreak, isFreezeActive } from "../utils/helpers";
+import { Zap, StickyNote, Activity, CheckCircle2, ListTodo, PenLine, Shield, Flame, Snowflake, CalendarPlus, ArrowRight, CalendarClock } from "lucide-react";
+import { normalizeDayData, safeContent, todayKey, calculateStreak, isFreezeActive, sortDayEvents } from "../utils/helpers";
 import { ACHIEVEMENTS } from "../constants/achievements";
 
 const FocusDashboard = ({ items, userLevel, userXp, onUpdateItem, onHabitDone, levels, onGoToBoard }) => {
@@ -39,9 +39,13 @@ const FocusDashboard = ({ items, userLevel, userXp, onUpdateItem, onHabitDone, l
     } catch {}
     const newData = { ...td };
     let completed = false;
-    if (newData[today]?.status === "done") delete newData[today];
-    else {
-      newData[today] = { status: "done", event: "" };
+    const prev = normalizeDayData(newData[today]);
+    if (prev.status === "done") {
+      // Un-checking clears only the status — the day's note/events survive.
+      if (prev.event || prev.events.length > 0) newData[today] = { ...prev, status: null };
+      else delete newData[today];
+    } else {
+      newData[today] = { ...prev, status: "done" };
       completed = true;
     }
     const newContent = JSON.stringify(newData);
@@ -50,6 +54,17 @@ const FocusDashboard = ({ items, userLevel, userXp, onUpdateItem, onHabitDone, l
   };
 
   const habits = items.filter((i) => i.type === "tracker");
+  // Today's timed entries across all trackers, phone-agenda style.
+  const todaysEvents = sortDayEvents(
+    habits.flatMap((h) => {
+      try {
+        const dd = normalizeDayData(JSON.parse(safeContent(h.content) || "{}")[today]);
+        return dd.events.map((ev) => ({ ...ev, habit: h.title || "Untitled" }));
+      } catch {
+        return [];
+      }
+    })
+  );
   const goalItem = items.find((i) => i.type === "goals");
   let todoList = [];
   let woop = { obstacle: "", plan: "" };
@@ -83,6 +98,22 @@ const FocusDashboard = ({ items, userLevel, userXp, onUpdateItem, onHabitDone, l
             </p>
             <div className="h-1 w-8 bg-purple-500 rounded-full" />
           </div>
+          {todaysEvents.length > 0 && (
+            <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-800">
+              <div className="flex items-center gap-1.5 mb-2.5 text-purple-600 dark:text-purple-400">
+                <CalendarClock size={14} />
+                <span className="text-[10px] font-bold uppercase tracking-wider">Today's Plan</span>
+              </div>
+              <div className="space-y-1.5">
+                {todaysEvents.map((ev) => (
+                  <div key={ev.id} className="flex items-center gap-2 text-xs" title={ev.habit}>
+                    <span className="font-mono text-[10px] font-bold text-purple-600 dark:text-purple-400 w-10 flex-none">{ev.time || "—"}</span>
+                    <span className="text-gray-700 dark:text-slate-200 flex-1 truncate">{ev.title}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="bg-gradient-to-br from-indigo-600 to-purple-700 p-5 rounded-2xl shadow-md text-white">
             <div className="flex items-center gap-1.5 mb-2 opacity-80">
               <Zap size={14} />

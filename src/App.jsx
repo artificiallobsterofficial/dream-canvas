@@ -738,7 +738,7 @@ export default function App() {
       td = JSON.parse(item.content || "{}");
     } catch {}
     const prevStatus = normalizeDayData(td[dateKey]).status;
-    if (!newData.status && !newData.event) delete td[dateKey];
+    if (!newData.status && !newData.event && !(newData.events && newData.events.length > 0)) delete td[dateKey];
     else td[dateKey] = newData;
     const newContent = JSON.stringify(td);
     // Award only on a real status transition — note edits re-fire this handler.
@@ -764,8 +764,8 @@ export default function App() {
     let milestone = null;
     for (const k of keys) {
       const prev = normalizeDayData(td[k]);
-      const nd = patch.clear ? { status: null, event: "" } : { ...prev, ...patch };
-      if (!nd.status && !(nd.event && nd.event.trim())) delete td[k];
+      const nd = patch.clear ? { status: null, event: "", events: [] } : { ...prev, ...patch };
+      if (!nd.status && !(nd.event && nd.event.trim()) && !(nd.events && nd.events.length > 0)) delete td[k];
       else td[k] = nd;
       if (nd.status === "done" && prev.status !== "done") {
         const ledgerKey = `${itemId}|${k}`;
@@ -1937,7 +1937,12 @@ export default function App() {
                   handleDayUpdate(itemId, dateStr, nd);
                   setCalendarModalData({ ...calendarModalData, data: nd });
                 };
-                return <CalendarDayModal data={data} dateStr={dateStr} onUpdateStatus={updateStatus} onUpdateEvent={updateEvent} onClose={() => setCalendarModalData(null)} />;
+                const updateEvents = (events) => {
+                  const nd = { ...data, events };
+                  handleDayUpdate(itemId, dateStr, nd);
+                  setCalendarModalData({ ...calendarModalData, data: nd });
+                };
+                return <CalendarDayModal data={data} dateStr={dateStr} onUpdateStatus={updateStatus} onUpdateEvent={updateEvent} onUpdateEvents={updateEvents} onClose={() => setCalendarModalData(null)} />;
               })()}
             {showImageModal && (
               <ImageModal

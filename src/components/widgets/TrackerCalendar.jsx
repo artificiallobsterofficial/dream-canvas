@@ -113,7 +113,11 @@ const TrackerCalendar = ({ item, zenMode, onUpdate, onDayClick, onDaysSelect }) 
     const dayData = normalizeDayData(trackedDates[dateKey]);
     const isDone = dayData.status === "done";
     const isPlanned = dayData.status === "planned";
-    const hasNote = !!(dayData.event && dayData.event.trim());
+    const dayEvents = dayData.events || [];
+    const hasNote = !!(dayData.event && dayData.event.trim()) || dayEvents.length > 0;
+    const tooltip = [...dayEvents.map((ev) => `${ev.time ? ev.time + " " : ""}${ev.title}`), dayData.event && dayData.event.trim()]
+      .filter(Boolean)
+      .join("\n");
     const inDragRange = (dragRange && d >= Math.min(dragRange.from, dragRange.to) && d <= Math.max(dragRange.from, dragRange.to)) || (selDays && selDays.has(d));
     days.push(
       <div
@@ -130,7 +134,7 @@ const TrackerCalendar = ({ item, zenMode, onUpdate, onDayClick, onDaysSelect }) 
           border: isDone && marker !== "check" ? `1px solid ${themeColor}` : isPlanned ? `1px dashed ${themeColor}` : "none",
           boxShadow: inDragRange ? `0 0 0 2px ${themeColor}` : undefined,
         }}
-        title={hasNote ? dayData.event : undefined}
+        title={tooltip || undefined}
       >
         {isDone || isPlanned ? getMarkerIcon() : d}
         {hasNote && (
