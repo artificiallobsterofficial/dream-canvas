@@ -81,7 +81,7 @@ const LinkCard = ({ item, zenMode, onUpdate }) => {
   );
 };
 
-const BoardItem = ({ item, isSelected, onSelect, onUpdate, onDayClick, zenMode, zoom = 1, onMagicBreakdown, onOpenProps, onResizeStart, onResizeEnd }) => {
+const BoardItem = ({ item, isSelected, onSelect, onUpdate, onDayClick, onDaysSelect, zenMode, zoom = 1, onMagicBreakdown, onOpenProps, onResizeStart, onResizeEnd }) => {
   const streak = item.type === "tracker" ? calculateStreak(item.content) : 0;
   const showGlow = streak >= 3;
   const isSticker = item.type === "sticker";
@@ -169,7 +169,7 @@ const BoardItem = ({ item, isSelected, onSelect, onUpdate, onDayClick, zenMode, 
         )}
         {item.type === "tracker" && (
           <div className={`w-full h-full p-3 rounded-xl flex flex-col ${panelBg}`}>
-            <TrackerCalendar item={item} zenMode={zenMode} onUpdate={onUpdate} onDayClick={onDayClick} />
+            <TrackerCalendar item={item} zenMode={zenMode} onUpdate={onUpdate} onDayClick={onDayClick} onDaysSelect={onDaysSelect} />
           </div>
         )}
         {item.type === "goals" && (

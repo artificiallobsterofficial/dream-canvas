@@ -1,10 +1,11 @@
+import { useState, useRef } from "react";
 import { ChevronLeft, ChevronRight, Snowflake } from "lucide-react";
 import { normalizeDayData, isFreezeActive } from "../../utils/helpers";
 import { TRACKER_MARKERS } from "../../constants/colors";
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-const TrackerCalendar = ({ item, zenMode, onUpdate, onDayClick }) => {
+const TrackerCalendar = ({ item, zenMode, onUpdate, onDayClick, onDaysSelect }) => {
   let trackedDates = {};
   try {
     trackedDates = JSON.parse(item.content || "{}");
@@ -28,9 +29,59 @@ const TrackerCalendar = ({ item, zenMode, onUpdate, onDayClick }) => {
     const nd = new Date(year, month + offset, 1);
     onUpdate(item.id, { viewDate: nd.getTime() });
   };
+  const dayKey = (day) => `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   const handleDayClick = (day) => {
-    const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    if (onDayClick && !zenMode) onDayClick(item.id, dateKey, normalizeDayData(trackedDates[dateKey]));
+    if (onDayClick && !zenMode) onDayClick(item.id, dayKey(day), normalizeDayData(trackedDates[dayKey(day)]));
+  };
+
+  // ─ Drag-select: press a day and sweep to mark a whole range at once ─
+  // A plain click (no sweep) keeps the single-day behavior. elementFromPoint is
+  // used because touch pointers implicitly capture to the pressed cell, so
+  // pointerenter never fires on sibling days.
+  const [dragRange, setDragRange] = useState(null); // { from, to } day numbers
+  const dragRef = useRef(null);
+  const beginDaySelect = (e, day) => {
+    e.stopPropagation();
+    if (zenMode) return;
+    dragRef.current = { anchor: day, last: day };
+    setDragRange({ from: day, to: day });
+    const onMove = (ev) => {
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      const cell = el && el.closest ? el.closest("[data-trackerday]") : null;
+      if (!cell || cell.dataset.trackerid !== String(item.id) || !dragRef.current) return;
+      const d = Number(cell.dataset.trackerday);
+      if (d && d !== dragRef.current.last) {
+        dragRef.current.last = d;
+        setDragRange({ from: dragRef.current.anchor, to: d });
+      }
+    };
+    const teardown = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", cancel);
+      setDragRange(null);
+    };
+    const finish = () => {
+      const drag = dragRef.current;
+      dragRef.current = null;
+      teardown();
+      if (!drag) return;
+      if (drag.last === drag.anchor) {
+        handleDayClick(drag.anchor);
+      } else if (onDaysSelect) {
+        const [a, b] = drag.anchor < drag.last ? [drag.anchor, drag.last] : [drag.last, drag.anchor];
+        const keys = [];
+        for (let d = a; d <= b; d++) keys.push(dayKey(d));
+        onDaysSelect(item.id, keys);
+      }
+    };
+    const cancel = () => {
+      dragRef.current = null;
+      teardown();
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", cancel);
   };
   const getMarkerIcon = () => {
     const m = TRACKER_MARKERS.find((m) => m.id === marker);
@@ -45,20 +96,21 @@ const TrackerCalendar = ({ item, zenMode, onUpdate, onDayClick }) => {
     const isDone = dayData.status === "done";
     const isPlanned = dayData.status === "planned";
     const hasNote = !!(dayData.event && dayData.event.trim());
+    const inDragRange = dragRange && d >= Math.min(dragRange.from, dragRange.to) && d <= Math.max(dragRange.from, dragRange.to);
     days.push(
       <div
         key={d}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          handleDayClick(d);
-        }}
+        data-trackerday={d}
+        data-trackerid={item.id}
+        onPointerDown={(e) => beginDaySelect(e, d)}
         className={`relative h-7 w-7 flex items-center justify-center rounded-full text-xs transition-all select-none ${!zenMode && "cursor-pointer"} ${
           isDone ? "font-bold text-white shadow-sm" : isPlanned ? "font-medium" : !zenMode ? "hover:bg-gray-100 text-gray-500" : "text-gray-500"
         }`}
         style={{
-          backgroundColor: isDone ? (marker === "check" ? themeColor : "transparent") : "transparent",
+          backgroundColor: isDone ? (marker === "check" ? themeColor : "transparent") : inDragRange ? `${themeColor}22` : "transparent",
           color: isDone ? (marker === "check" ? "white" : "inherit") : isPlanned ? themeColor : "inherit",
           border: isDone && marker !== "check" ? `1px solid ${themeColor}` : isPlanned ? `1px dashed ${themeColor}` : "none",
+          boxShadow: inDragRange ? `0 0 0 2px ${themeColor}` : undefined,
         }}
         title={hasNote ? dayData.event : undefined}
       >

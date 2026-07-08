@@ -747,6 +747,44 @@ export default function App() {
     handleUpdateItem(itemId, { content: newContent });
   };
 
+  // Batched variant for drag-selected day ranges: one content write (one undo
+  // step), one combined XP toast. Days pay through the same awardedDays ledger
+  // as single-day marking, with the same streak-milestone payouts (70/220
+  // replaces that day's 20, matching awardHabitDone applied day by day).
+  const handleDaysUpdate = (itemId, dateKeys, patch) => {
+    const item = itemsRef.current.find((i) => i.id === itemId);
+    if (!item) return;
+    let td = {};
+    try {
+      td = JSON.parse(item.content || "{}");
+    } catch {}
+    const keys = [...dateKeys].sort();
+    const ledger = {};
+    let xpTotal = 0;
+    let milestone = null;
+    for (const k of keys) {
+      const prev = normalizeDayData(td[k]);
+      const nd = patch.clear ? { status: null, event: "" } : { ...prev, ...patch };
+      if (!nd.status && !(nd.event && nd.event.trim())) delete td[k];
+      else td[k] = nd;
+      if (nd.status === "done" && prev.status !== "done") {
+        const ledgerKey = `${itemId}|${k}`;
+        if (!awardedDays[ledgerKey] && !ledger[ledgerKey]) {
+          ledger[ledgerKey] = Date.now();
+          const streak = calculateStreak(JSON.stringify(td));
+          if (streak === 7) { xpTotal += 70; milestone = "7-day streak!"; }
+          else if (streak === 30) { xpTotal += 220; milestone = "30-day habit!"; }
+          else xpTotal += 20;
+        }
+      } else if (nd.status === "planned" && prev.status !== "planned") {
+        xpTotal += 5;
+      }
+    }
+    if (Object.keys(ledger).length > 0) setAwardedDays((prev) => ({ ...prev, ...ledger }));
+    if (xpTotal > 0) addXp(xpTotal, `${milestone ? milestone + " " : ""}${keys.length} days +${xpTotal} XP`);
+    handleUpdateItem(itemId, { content: JSON.stringify(td) });
+  };
+
   const handlePointerDownItem = (e, item) => {
     e.stopPropagation();
     if (pinchRef.current.pinch) return; // second finger during a pinch isn't a drag
@@ -1627,6 +1665,7 @@ export default function App() {
                         onSelect={handlePointerDownItem}
                         onUpdate={handleUpdateItem}
                         onDayClick={(itemId, dateStr, data) => setCalendarModalData({ itemId, dateStr, data })}
+                        onDaysSelect={(itemId, dateKeys) => setCalendarModalData({ itemId, dateKeys, data: { status: null, event: "" } })}
                         zenMode={zenMode}
                         zoom={view.zoom}
                         onMagicBreakdown={handleMagicBreakdown}
@@ -1828,7 +1867,35 @@ export default function App() {
             {showTemplateModal && <TemplateModal onApply={applyTemplate} onClose={() => setShowTemplateModal(false)} />}
             {calendarModalData &&
               (() => {
-                const { itemId, dateStr, data } = calendarModalData;
+                const { itemId, dateStr, dateKeys, data } = calendarModalData;
+                if (dateKeys) {
+                  // Multi-day: `data` mirrors what was last applied so the
+                  // status buttons highlight; each action writes the whole range.
+                  const updateStatus = (status) => {
+                    const next = data.status === status ? null : status;
+                    handleDaysUpdate(itemId, dateKeys, { status: next });
+                    setCalendarModalData({ ...calendarModalData, data: { ...data, status: next } });
+                  };
+                  const updateEvent = (text) => {
+                    handleDaysUpdate(itemId, dateKeys, { event: text });
+                    setCalendarModalData({ ...calendarModalData, data: { ...data, event: text } });
+                  };
+                  const clearAll = () => {
+                    handleDaysUpdate(itemId, dateKeys, { clear: true });
+                    setCalendarModalData({ ...calendarModalData, data: { status: null, event: "" } });
+                  };
+                  return (
+                    <CalendarDayModal
+                      data={data}
+                      dateStr={`${dateKeys[0]} → ${dateKeys[dateKeys.length - 1]}`}
+                      multiCount={dateKeys.length}
+                      onUpdateStatus={updateStatus}
+                      onUpdateEvent={updateEvent}
+                      onClear={clearAll}
+                      onClose={() => setCalendarModalData(null)}
+                    />
+                  );
+                }
                 const updateStatus = (status) => {
                   const nd = { ...data, status: data.status === status ? null : status };
                   handleDayUpdate(itemId, dateStr, nd);
