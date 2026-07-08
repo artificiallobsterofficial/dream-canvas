@@ -4,10 +4,11 @@ import {
   Link as LinkIcon, MessageCircle, BookOpen, ListTodo, Crown, Zap,
   LayoutTemplate, PenLine, Eye, EyeOff, Download, Upload, Settings, Smile,
   Timer, ZoomIn, ZoomOut, BarChart3, LocateFixed, Undo2, Redo2, Flower2, Sprout,
-  Clapperboard, ImageDown, Frame, ChevronUp, ChevronDown,
+  Clapperboard, ImageDown, Frame, ChevronUp, ChevronDown, Link2, Smartphone,
 } from "lucide-react";
 
 import { generateId, normalizeDayData, safeContent, todayKey, calculateStreak, fileToDataUrl } from "./utils/helpers";
+import { isHttpUrl, defaultLinkTitle } from "./utils/links";
 import { StorageService, SnapshotService, requestPersistence } from "./services/storage";
 import { callAI, buildBoardContext, COACH_SYSTEM_WITH_BOARD } from "./services/ai";
 import { generateWeeklyReview } from "./services/review";
@@ -31,6 +32,7 @@ import AIModal from "./components/modals/AIModal";
 import CalendarDayModal from "./components/modals/CalendarDayModal";
 import ReviewModal from "./components/modals/ReviewModal";
 import ImageModal from "./components/modals/ImageModal";
+import LinkModal from "./components/modals/LinkModal";
 import ConfirmModal from "./components/modals/ConfirmModal";
 import OnboardingModal from "./components/modals/OnboardingModal";
 import BloomGarden from "./components/BloomGarden";
@@ -162,6 +164,7 @@ export default function App() {
 
   // Modals
   const [showImageModal, setShowImageModal] = useState(false);
+  const [showLinkModal, setShowLinkModal] = useState(false);
   const [showAIModal, setShowAIModal] = useState(false);
   const [showStickerModal, setShowStickerModal] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
@@ -830,7 +833,7 @@ export default function App() {
   selectedIdRef.current = selectedId;
   const modalOpenRef = useRef(false);
   modalOpenRef.current =
-    showImageModal || showAIModal || showStickerModal || showChatModal || showLibraryModal ||
+    showImageModal || showLinkModal || showAIModal || showStickerModal || showChatModal || showLibraryModal ||
     showTemplateModal || showSettingsModal || showReviewModal || !!calendarModalData || confirmModal.isOpen ||
     (items.length === 0 && !boardConfig.onboardedAt); // onboarding wizard is up
 
@@ -935,8 +938,16 @@ export default function App() {
     img.src = src;
   }, []);
 
-  // Clipboard paste (vision mode only). Image blob → downscaled image item at the
-  // viewport center; plain text (URL or not — no unfurl this round) → text item.
+  // Add a compact link card. Title is derived from the URL at creation time
+  // (static hosting — no cross-origin HTML fetch for the real <title>; the
+  // card title stays double-click-editable instead). Never blocks on network.
+  const addLinkItem = useCallback((url) => {
+    addItemRef.current("link", url, { width: 260, height: 88, title: defaultLinkTitle(url) });
+  }, []);
+
+  // Clipboard paste (vision mode only). Image blob → downscaled image item at
+  // the viewport center; a well-formed http(s) URL → link card; other plain
+  // text → text item.
   // Never intercepts paste into inputs/textareas or while a modal is up.
   useEffect(() => {
     if (!loaded || viewMode !== "vision") return;
@@ -961,11 +972,12 @@ export default function App() {
       const text = (cd.getData("text/plain") || "").trim();
       if (!text) return;
       e.preventDefault();
-      addItemRef.current("text", text.slice(0, 2000));
+      if (isHttpUrl(text)) addLinkItem(text);
+      else addItemRef.current("text", text.slice(0, 2000));
     };
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [loaded, viewMode, addImageItem, showToast]);
+  }, [loaded, viewMode, addImageItem, addLinkItem, showToast]);
 
   // Drag-and-drop from the OS: image files land where they're dropped (world
   // coords), multiples fan out with slight offsets. `dragDepthRef` counts
@@ -1063,10 +1075,28 @@ export default function App() {
   const [pngStage, setPngStage] = useState(null); // { w, h, offX, offY } while capturing
   const [isExportingPng, setIsExportingPng] = useState(false);
   const pngStageRef = useRef(null);
+  // Small export-preset popover under the header ImageDown button.
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  useEffect(() => {
+    if (!showExportMenu) return;
+    const onDown = (e) => {
+      if (!(e.target instanceof Element) || !e.target.closest(".export-menu")) setShowExportMenu(false);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [showExportMenu]);
 
-  const handleExportPng = async () => {
+  // Render the board to a PNG via the off-screen stage.
+  // mode "board" (default): fit-to-content bounds + 80px padding, capped pixel
+  //   density — the original full-board export.
+  // mode "wallpaper" (requires width/height, portrait): board content centered
+  //   and scaled to COVER a width×height canvas on the board background —
+  //   excess (usually width) is cropped, giving a lock-screen-ready crop of
+  //   the board's heart. Output is exactly width×height pixels.
+  const exportImage = async ({ width, height, mode = "board" } = {}) => {
     if (isExportingPng || itemsRef.current.length === 0) return;
     const its = itemsRef.current;
+    setShowExportMenu(false);
     setIsExportingPng(true);
     try {
       const { toPng } = await import("html-to-image");
@@ -1075,28 +1105,52 @@ export default function App() {
       const minY = Math.min(...its.map((i) => i.y));
       const maxX = Math.max(...its.map((i) => i.x + i.width));
       const maxY = Math.max(...its.map((i) => i.y + i.height));
-      const w = Math.ceil(maxX - minX + pad * 2);
-      const h = Math.ceil(maxY - minY + pad * 2);
-      // Browsers cap canvas dimensions (~16k px per side) — on huge boards,
-      // trade pixel density for a capture that actually succeeds.
-      const pixelRatio = Math.min(2, 16000 / Math.max(w, h));
-      setPngStage({ w, h, offX: pad - minX, offY: pad - minY });
+      const contentW = maxX - minX + pad * 2;
+      const contentH = maxY - minY + pad * 2;
+      let stage; // { w, h, offX, offY } in world units
+      let capture; // extra toPng sizing options
+      let filename;
+      if (mode === "wallpaper") {
+        // Cover-fit: scale so padded content bounds fill the portrait canvas,
+        // center on the content, crop the overflow via the stage viewport.
+        const scale = Math.max(width / contentW, height / contentH);
+        const w = width / scale;
+        const h = height / scale;
+        stage = { w, h, offX: w / 2 - (minX + maxX) / 2, offY: h / 2 - (minY + maxY) / 2 };
+        // canvasWidth/Height pin the output raster to the exact preset pixels.
+        capture = { canvasWidth: width, canvasHeight: height };
+        filename = `dreamcanvas-wallpaper-${new Date().toISOString().slice(0, 10)}.png`;
+      } else {
+        // Browsers cap canvas dimensions (~16k px per side) — on huge boards,
+        // trade pixel density for a capture that actually succeeds.
+        const w = Math.ceil(contentW);
+        const h = Math.ceil(contentH);
+        stage = { w, h, offX: pad - minX, offY: pad - minY };
+        capture = { pixelRatio: Math.min(2, 16000 / Math.max(w, h)) };
+        filename = `dreamcanvas-${new Date().toISOString().slice(0, 10)}.png`;
+      }
+      setPngStage(stage);
       // Wait for the off-screen stage to mount before capturing.
       await new Promise((resolve) => {
         const poll = () => (pngStageRef.current ? resolve() : requestAnimationFrame(poll));
         requestAnimationFrame(poll);
       });
       const dataUrl = await toPng(pngStageRef.current, {
-        width: w,
-        height: h,
-        pixelRatio,
+        width: stage.w,
+        height: stage.h,
+        ...capture,
         backgroundColor: canvasBg,
+        // Cross-origin images the library can't inline (link-card favicons)
+        // become a transparent pixel instead of failing the capture — the
+        // link card's Globe icon sits behind the favicon and shows through.
+        imagePlaceholder:
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
         // Neutralize the stage's off-screen positioning on the clone.
         style: { left: "0px", top: "0px" },
       });
       const a = document.createElement("a");
       a.href = dataUrl;
-      a.download = `dreamcanvas-${new Date().toISOString().slice(0, 10)}.png`;
+      a.download = filename;
       a.click();
     } catch (err) {
       console.error("PNG export failed", err);
@@ -1356,14 +1410,39 @@ export default function App() {
           <button onClick={() => importRef.current?.click()} className="p-1.5 text-gray-400 dark:text-slate-500 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg" title="Import board (JSON)">
             <Upload size={16} />
           </button>
-          <button
-            onClick={handleExportPng}
-            disabled={isExportingPng || items.length === 0}
-            className="p-1.5 text-gray-400 dark:text-slate-500 enabled:hover:text-purple-500 enabled:hover:bg-purple-50 dark:enabled:hover:bg-purple-900/30 rounded-lg disabled:opacity-40"
-            title={isExportingPng ? "Rendering your board…" : "Export board as image (PNG)"}
-          >
-            {isExportingPng ? <Loader2 size={16} className="animate-spin text-purple-500" /> : <ImageDown size={16} />}
-          </button>
+          <div className="relative export-menu">
+            <button
+              onClick={() => setShowExportMenu((v) => !v)}
+              disabled={isExportingPng || items.length === 0}
+              className="p-1.5 text-gray-400 dark:text-slate-500 enabled:hover:text-purple-500 enabled:hover:bg-purple-50 dark:enabled:hover:bg-purple-900/30 rounded-lg disabled:opacity-40"
+              title={isExportingPng ? "Rendering your board…" : "Export board as image (PNG)"}
+            >
+              {isExportingPng ? <Loader2 size={16} className="animate-spin text-purple-500" /> : <ImageDown size={16} />}
+            </button>
+            {showExportMenu && !isExportingPng && (
+              <div className="absolute right-0 top-full mt-1.5 w-60 bg-white/95 dark:bg-slate-800/95 backdrop-blur rounded-xl shadow-xl border border-gray-200 dark:border-slate-700 p-1.5 z-50">
+                <div className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider px-2 py-1">Export as image</div>
+                <button
+                  onClick={() => exportImage()}
+                  className="w-full text-left p-2 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-lg text-xs flex items-center gap-2 text-gray-700 dark:text-slate-300"
+                >
+                  <ImageDown size={14} className="text-purple-500" /> Full board (PNG)
+                </button>
+                <button
+                  onClick={() => exportImage({ width: 1179, height: 2556, mode: "wallpaper" })}
+                  className="w-full text-left p-2 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-lg text-xs flex items-center gap-2 text-gray-700 dark:text-slate-300"
+                >
+                  <Smartphone size={14} className="text-purple-500" /> Phone wallpaper (1179×2556)
+                </button>
+                <button
+                  onClick={() => exportImage({ width: 1080, height: 2400, mode: "wallpaper" })}
+                  className="w-full text-left p-2 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-lg text-xs flex items-center gap-2 text-gray-700 dark:text-slate-300"
+                >
+                  <Smartphone size={14} className="text-purple-500" /> Phone wallpaper (1080×2400)
+                </button>
+              </div>
+            )}
+          </div>
           <button
             onClick={handleExport}
             className="relative p-1.5 text-gray-400 dark:text-slate-500 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg"
@@ -1440,6 +1519,9 @@ export default function App() {
                     className="text-left p-1.5 hover:bg-violet-50 dark:hover:bg-violet-900/30 rounded text-xs flex gap-2 text-gray-700 dark:text-slate-300"
                   >
                     <Frame size={14} /> Frame
+                  </button>
+                  <button onClick={() => { setShowLinkModal(true); setShowAddMenu(false); }} className="text-left p-1.5 hover:bg-gray-100 dark:hover:bg-slate-700 rounded text-xs flex gap-2 text-gray-700 dark:text-slate-300">
+                    <Link2 size={14} /> Link
                   </button>
                   <div className="h-px bg-gray-100 dark:bg-slate-700 my-0.5" />
                   <div className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-0.5 px-2">Productivity</div>
@@ -1766,6 +1848,15 @@ export default function App() {
                   setShowImageModal(false);
                 }}
                 onClose={() => setShowImageModal(false)}
+              />
+            )}
+            {showLinkModal && (
+              <LinkModal
+                onAdd={(url) => {
+                  addLinkItem(url);
+                  setShowLinkModal(false);
+                }}
+                onClose={() => setShowLinkModal(false)}
               />
             )}
             {showStickerModal && (
