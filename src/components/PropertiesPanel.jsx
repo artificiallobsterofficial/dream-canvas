@@ -124,6 +124,33 @@ const PropertiesPanel = ({ item, onUpdate, onClose }) => (
         </>
       )}
 
+      {item.type === "link" && (
+        <>
+          <div>
+            <label className="text-[10px] text-gray-500 dark:text-slate-400 block mb-1">URL</label>
+            <input
+              type="text"
+              className="w-full text-xs dc-field"
+              value={typeof item.content === "string" ? item.content : ""}
+              onChange={(e) => onUpdate(item.id, { content: e.target.value })}
+              onPointerDown={(e) => e.stopPropagation()}
+              placeholder="https://…"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-gray-500 dark:text-slate-400 block mb-1">Title</label>
+            <input
+              type="text"
+              className="w-full text-xs dc-field"
+              value={item.title || ""}
+              onChange={(e) => onUpdate(item.id, { title: e.target.value || undefined })}
+              onPointerDown={(e) => e.stopPropagation()}
+              placeholder="Auto (from URL)"
+            />
+          </div>
+        </>
+      )}
+
       {item.type === "timer" && (
         <div>
           <label className="text-[10px] text-gray-500 dark:text-slate-400 block mb-1">Target Date</label>

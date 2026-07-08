@@ -1,8 +1,85 @@
-import { Maximize, X, Zap, Flame, PenLine, Settings } from "lucide-react";
+import { useState } from "react";
+import { Maximize, X, Zap, Flame, PenLine, Settings, Globe, ExternalLink } from "lucide-react";
 import { calculateStreak, safeContent } from "../utils/helpers";
+import { hostOf, defaultLinkTitle, faviconUrl } from "../utils/links";
 import TrackerCalendar from "./widgets/TrackerCalendar";
 import GoalColumns from "./widgets/GoalColumns";
 import CountdownWidget from "./widgets/CountdownWidget";
+
+// Compact link card (~260×88): favicon + editable title + hostname, with a
+// small open-in-new-tab button. The body stays a normal draggable item — the
+// whole card is deliberately NOT an <a>, which would fight canvas drag.
+// Favicon strategy: the Globe icon sits *behind* the favicon <img>, so it
+// shows through whenever the favicon is missing — a 404 at runtime (onError
+// hides the img) or the PNG-export path, where html-to-image can't inline the
+// cross-origin favicon and it renders empty.
+const LinkCard = ({ item, zenMode, onUpdate }) => {
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [iconFailed, setIconFailed] = useState(false);
+  const url = safeContent(item.content);
+  const host = hostOf(url);
+  const title = item.title || defaultLinkTitle(url);
+  return (
+    <div className="w-full h-full px-3 py-2.5 flex items-center gap-3">
+      <div className="relative w-9 h-9 flex-none rounded-lg bg-gray-100 dark:bg-slate-200 flex items-center justify-center overflow-hidden">
+        <Globe size={17} className="text-gray-400" />
+        {!iconFailed && (
+          <img
+            src={faviconUrl(url)}
+            alt=""
+            className="absolute inset-0 w-full h-full object-contain p-1.5"
+            draggable={false}
+            onError={() => setIconFailed(true)}
+          />
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        {editingTitle && !zenMode ? (
+          <input
+            className="w-full bg-transparent border-b border-purple-400 outline-none text-sm font-semibold text-gray-800"
+            defaultValue={title}
+            autoFocus
+            onPointerDown={(e) => e.stopPropagation()}
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              onUpdate(item.id, { title: v || undefined }); // empty → fall back to the derived default
+              setEditingTitle(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+              else if (e.key === "Escape") {
+                e.currentTarget.value = title;
+                e.currentTarget.blur();
+              }
+            }}
+          />
+        ) : (
+          <div
+            className="text-sm font-semibold text-gray-800 truncate"
+            title={zenMode ? url : `${url}\nDouble-click to rename`}
+            onDoubleClick={() => !zenMode && setEditingTitle(true)}
+          >
+            {title}
+          </div>
+        )}
+        <div className="text-[10px] text-gray-400 truncate">{host}</div>
+      </div>
+      {!zenMode && (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="ctrl flex-none p-1.5 rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50"
+          title="Open link in a new tab"
+          onPointerDown={(e) => e.stopPropagation()}
+          draggable={false}
+        >
+          <ExternalLink size={14} />
+        </a>
+      )}
+    </div>
+  );
+};
 
 const BoardItem = ({ item, isSelected, onSelect, onUpdate, onDayClick, zenMode, zoom = 1, onMagicBreakdown, onOpenProps, onResizeStart, onResizeEnd }) => {
   const streak = item.type === "tracker" ? calculateStreak(item.content) : 0;
@@ -126,6 +203,7 @@ const BoardItem = ({ item, isSelected, onSelect, onUpdate, onDayClick, zenMode, 
           </div>
         )}
         {item.type === "timer" && <CountdownWidget target={item.content} />}
+        {item.type === "link" && <LinkCard item={item} zenMode={zenMode} onUpdate={onUpdate} />}
       </div>
       {isSelected && !zenMode && (
         <>
