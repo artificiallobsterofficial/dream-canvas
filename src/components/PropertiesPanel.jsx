@@ -1,5 +1,6 @@
 import { X, Trash2, RotateCw } from "lucide-react";
-import { TEXT_COLORS, NOTE_COLORS, TRACKER_COLORS, TRACKER_MARKERS, FONT_OPTIONS } from "../constants/colors";
+import { TEXT_COLORS, NOTE_COLORS, TRACKER_COLORS, TRACKER_MARKERS, FONT_OPTIONS, FRAME_COLORS } from "../constants/colors";
+import { safeContent } from "../utils/helpers";
 
 const PropertiesPanel = ({ item, onUpdate, onClose }) => (
   // Desktop: floating panel top-right. Small screens: bottom sheet.
@@ -20,6 +21,9 @@ const PropertiesPanel = ({ item, onUpdate, onClose }) => (
         </button>
       </div>
 
+      {/* Frames never rotate — a tilted container region would fight the axis-aligned
+          center-containment math and read as broken rather than playful. */}
+      {item.type !== "frame" && (
       <div>
         <label className="text-[10px] text-gray-500 dark:text-slate-400 mb-1 flex items-center gap-1">
           <RotateCw size={10} /> Rotation ({Math.round(item.rotation || 0)}°)
@@ -39,6 +43,38 @@ const PropertiesPanel = ({ item, onUpdate, onClose }) => (
           </button>
         </div>
       </div>
+      )}
+
+      {item.type === "frame" && (
+        <>
+          <div>
+            <label className="text-[10px] text-gray-500 dark:text-slate-400 block mb-1">Name</label>
+            <input
+              type="text"
+              className="w-full text-xs dc-field"
+              value={safeContent(item.content)}
+              placeholder="Life area name"
+              onChange={(e) => onUpdate(item.id, { content: e.target.value })}
+              onPointerDown={(e) => e.stopPropagation()}
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-gray-500 dark:text-slate-400 block mb-1">Accent</label>
+            <div className="flex flex-wrap gap-1.5">
+              {FRAME_COLORS.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => onUpdate(item.id, { color: c })}
+                  className={`w-5 h-5 rounded-full border border-gray-200 dark:border-slate-600 ${
+                    (item.color || "#8b5cf6") === c ? "ring-2 ring-purple-500 ring-offset-1 dark:ring-offset-slate-900" : ""
+                  }`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
       {item.type === "text" && (
         <>

@@ -4,7 +4,7 @@ import {
   Link as LinkIcon, MessageCircle, BookOpen, ListTodo, Crown, Zap,
   LayoutTemplate, PenLine, Eye, EyeOff, Download, Upload, Settings, Smile,
   Timer, ZoomIn, ZoomOut, BarChart3, LocateFixed, Undo2, Redo2, Flower2, Sprout,
-  Clapperboard, ImageDown,
+  Clapperboard, ImageDown, Frame, ChevronUp, ChevronDown,
 } from "lucide-react";
 
 import { generateId, normalizeDayData, safeContent, todayKey, calculateStreak, fileToDataUrl } from "./utils/helpers";
@@ -19,6 +19,7 @@ import { buildStarterBoard } from "./constants/onboarding";
 
 import ToolbarButton from "./components/ToolbarButton";
 import BoardItem from "./components/BoardItem";
+import FrameItem from "./components/FrameItem";
 import FocusDashboard from "./components/FocusDashboard";
 import PropertiesPanel from "./components/PropertiesPanel";
 import SettingsModal from "./components/modals/SettingsModal";
@@ -41,6 +42,20 @@ const HISTORY_LIMIT = 50;
 const SNAP_THRESHOLD = 6;
 const DEFAULT_GREETING = { role: "assistant", text: "Hi! I'm your Vision Coach ✨ What big dream are you working on? I can help with goals, affirmations, or ideas!" };
 
+// ─ Frames: containment is *computed*, never stored ─
+// An item belongs to a frame when its center lies inside the frame's rect.
+// No parentId to migrate; dragging an item in/out of a frame "just works".
+const itemsInFrame = (frame, list) =>
+  list.filter(
+    (i) =>
+      i.id !== frame.id &&
+      i.type !== "frame" &&
+      i.x + i.width / 2 >= frame.x &&
+      i.x + i.width / 2 <= frame.x + frame.width &&
+      i.y + i.height / 2 >= frame.y &&
+      i.y + i.height / 2 <= frame.y + frame.height
+  );
+
 export default function App() {
   const [userXp, setUserXp] = useState(0);
   const [userLevel, setUserLevel] = useState(1);
@@ -53,6 +68,7 @@ export default function App() {
   const [dragState, setDragState] = useState({ isDragging: false });
   const [viewMode, setViewMode] = useState(() => (typeof window !== "undefined" && window.innerWidth < 768 ? "focus" : "vision"));
   const [zenMode, setZenMode] = useState(false);
+  const [frameNavCollapsed, setFrameNavCollapsed] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [lastExportAt, setLastExportAt] = useState(null);
@@ -362,7 +378,19 @@ export default function App() {
           if (by) { ny = by.c - by.off; gh = by.c; }
         }
         setSnapGuides((prev) => (prev?.v === gv && prev?.h === gh ? prev : gv == null && gh == null ? null : { v: gv, h: gh }));
-        setItems((prev) => prev.map((i) => (i.id === dragState.id ? { ...i, x: nx, y: ny } : i)));
+        // Frames carry their contents: items captured at drag start ride along by
+        // the same (post-snap) delta. Positions derive from drag-start values, so
+        // this stays correct however React batches the moves.
+        const fdx = nx - dragState.ix;
+        const fdy = ny - dragState.iy;
+        setItems((prev) =>
+          prev.map((i) => {
+            if (i.id === dragState.id) return { ...i, x: nx, y: ny };
+            const cs = dragState.containedStart?.[i.id];
+            if (cs) return { ...i, x: cs.x + fdx, y: cs.y + fdy };
+            return i;
+          })
+        );
       } else if (panState && e.pointerId === panState.pointerId) {
         e.preventDefault();
         setView((v) => ({ ...v, x: panState.vx + (cx - panState.startX), y: panState.vy + (cy - panState.startY) }));
@@ -380,6 +408,7 @@ export default function App() {
 
   // ─ Zoom (ctrl/cmd + wheel zooms toward cursor; plain wheel pans) ─
   const applyZoom = useCallback((factor, cx, cy) => {
+    cancelAnimationFrame(viewAnimRef.current); // manual zoom cancels a frame-nav flight
     setView((v) => {
       const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, v.zoom * factor));
       const scale = newZoom / v.zoom;
@@ -398,6 +427,7 @@ export default function App() {
       if (e.ctrlKey || e.metaKey) {
         applyZoom(e.deltaY < 0 ? 1.1 : 1 / 1.1, cx, cy);
       } else {
+        cancelAnimationFrame(viewAnimRef.current); // manual pan cancels a frame-nav flight
         setView((v) => ({ ...v, x: v.x - e.deltaX, y: v.y - e.deltaY }));
       }
     };
@@ -411,30 +441,63 @@ export default function App() {
   };
   const resetView = () => setView({ x: 0, y: 0, zoom: 1 });
 
-  // "Find my board": fit every item into the viewport. The rescue hatch for
-  // an infinite canvas — works no matter how lost the view is.
-  const fitViewTo = (list) => {
+  // Fit-to-content target view for a list of items (frames included — they're
+  // ordinary items and count toward content bounds). Returns null when there's
+  // nothing to frame or the board isn't mounted yet.
+  const viewTargetFor = (list, pad = 60) => {
     const br = boardRef.current?.getBoundingClientRect();
-    if (!br || list.length === 0) {
-      resetView();
-      return;
-    }
+    if (!br || list.length === 0) return null;
     const minX = Math.min(...list.map((i) => i.x));
     const minY = Math.min(...list.map((i) => i.y));
     const maxX = Math.max(...list.map((i) => i.x + i.width));
     const maxY = Math.max(...list.map((i) => i.y + i.height));
-    const pad = 60;
     const zoom = Math.min(
       1.25, // don't blow a tiny board up past readable scale
       Math.max(MIN_ZOOM, Math.min(br.width / (maxX - minX + pad * 2), br.height / (maxY - minY + pad * 2)))
     );
-    setView({
+    return {
       zoom,
       x: br.width / 2 - ((minX + maxX) / 2) * zoom,
       y: br.height / 2 - ((minY + maxY) / 2) * zoom,
-    });
+    };
+  };
+
+  // "Find my board": fit every item into the viewport. The rescue hatch for
+  // an infinite canvas — works no matter how lost the view is.
+  const fitViewTo = (list) => {
+    const target = viewTargetFor(list);
+    if (target) setView(target);
+    else resetView();
   };
   const fitView = () => fitViewTo(items);
+
+  // ─ Smooth camera flight (frame-nav chips) ─
+  // Small rAF glide to a target view; reduced motion jumps instantly. Any manual
+  // pan/zoom cancels the flight so the user always wins the camera.
+  const viewAnimRef = useRef(0);
+  const stopViewAnim = useCallback(() => cancelAnimationFrame(viewAnimRef.current), []);
+  const animateViewTo = useCallback((to, duration = 600) => {
+    if (!to) return;
+    stopViewAnim();
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
+      setView(to);
+      return;
+    }
+    const from = { ...viewRef.current };
+    const t0 = performance.now();
+    const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+    const tick = (now) => {
+      const t = Math.min(1, (now - t0) / duration);
+      const k = ease(t);
+      setView({
+        zoom: from.zoom + (to.zoom - from.zoom) * k,
+        x: from.x + (to.x - from.x) * k,
+        y: from.y + (to.y - from.y) * k,
+      });
+      if (t < 1) viewAnimRef.current = requestAnimationFrame(tick);
+    };
+    viewAnimRef.current = requestAnimationFrame(tick);
+  }, [stopViewAnim]);
 
   // Cozy first frame: when the app opens onto a board that already has content, fit it into view
   // instead of dropping the user onto an empty, too-wide expanse. Runs once after load.
@@ -468,10 +531,14 @@ export default function App() {
 
   const startPlayback = () => {
     if (itemsRef.current.length === 0) return;
+    stopViewAnim(); // the tour owns the camera — kill any frame-nav flight
     prePlaybackViewRef.current = viewRef.current;
+    // Tour stops: when life-area frames exist, tour those (each stop fits a whole
+    // frame — one "chapter" per area) instead of every individual item.
+    const frames = itemsRef.current.filter((i) => i.type === "frame");
     // Tour order: nearest-neighbor walk seeded at the top-left-most item, so the
     // camera wanders the board like a gallery visit instead of teleporting.
-    const rem = [...itemsRef.current];
+    const rem = frames.length > 0 ? [...frames] : [...itemsRef.current];
     rem.sort((a, b) => a.x + a.y - (b.x + b.y));
     const order = [rem.shift()];
     while (rem.length) {
@@ -594,8 +661,8 @@ export default function App() {
   // ─ Add item (centered in the current viewport, in world coords) ─
   const addItem = (type, content = "", extraProps = {}) => {
     const br = boardRef.current?.getBoundingClientRect();
-    const w = type === "note" ? 200 : type === "sticker" ? 80 : type === "goals" ? 480 : type === "journal" ? 350 : type === "timer" ? 180 : 220;
-    const h = type === "note" ? 200 : type === "sticker" ? 80 : type === "goals" ? 280 : type === "journal" ? 400 : type === "tracker" ? 340 : type === "timer" ? 120 : 120;
+    const w = type === "note" ? 200 : type === "sticker" ? 80 : type === "goals" ? 480 : type === "journal" ? 350 : type === "timer" ? 180 : type === "frame" ? 640 : 220;
+    const h = type === "note" ? 200 : type === "sticker" ? 80 : type === "goals" ? 280 : type === "journal" ? 400 : type === "tracker" ? 340 : type === "timer" ? 120 : type === "frame" ? 420 : 120;
     const cx = br ? (br.width / 2 - view.x) / view.zoom - w / 2 : 300;
     const cy = br ? (br.height / 2 - view.y) / view.zoom - h / 2 : 200;
     const off = Math.random() * 40 - 20;
@@ -682,21 +749,39 @@ export default function App() {
     if (pinchRef.current.pinch) return; // second finger during a pinch isn't a drag
     if (item.id !== selectedId) setShowProps(false);
     setSelectedId(item.id);
-    const maxZ = Math.max(...items.map((i) => i.zIndex || 0), 0);
+    const isFrame = item.type === "frame";
+    // Frames live in their own background layer — raising one only reorders it
+    // among frames, never above normal items.
+    const zPool = isFrame ? items.filter((i) => i.type === "frame") : items;
+    const maxZ = Math.max(...zPool.map((i) => i.zIndex || 0), 0);
     setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, zIndex: maxZ + 1 } : i)));
+    // Dragging a frame carries everything whose center is inside it — the set is
+    // captured once at drag start (grab-what's-under-me, FigJam-style).
+    const contained = isFrame ? itemsInFrame(item, items) : [];
+    const containedStart = {};
+    for (const c of contained) containedStart[c.id] = { x: c.x, y: c.y };
     // Snap candidates (other items' edges + centers) computed once per drag,
     // and the pre-drag snapshot for a single drag-end history entry.
+    // Frames contribute only their edges (their center lines cross the middle of
+    // a large region and made arranging items inside them noisy). Items riding
+    // along with a dragged frame are excluded — they move too.
     const snapX = [];
     const snapY = [];
     for (const o of items) {
-      if (o.id === item.id) continue;
-      snapX.push(o.x, o.x + o.width / 2, o.x + o.width);
-      snapY.push(o.y, o.y + o.height / 2, o.y + o.height);
+      if (o.id === item.id || containedStart[o.id]) continue;
+      if (o.type === "frame") {
+        snapX.push(o.x, o.x + o.width);
+        snapY.push(o.y, o.y + o.height);
+      } else {
+        snapX.push(o.x, o.x + o.width / 2, o.x + o.width);
+        snapY.push(o.y, o.y + o.height / 2, o.y + o.height);
+      }
     }
     setDragState({
       isDragging: true, pointerId: e.pointerId, id: item.id,
       startX: e.clientX, startY: e.clientY, ix: item.x, iy: item.y,
       w: item.width, h: item.height, snapX, snapY, preSnapshot: items,
+      containedStart,
     });
   };
 
@@ -732,6 +817,7 @@ export default function App() {
     if (e.target.closest(".board-item") || e.target.closest("button")) return;
     const pr = pinchRef.current;
     if (pr.pinch || pr.pointers.size >= 2) return;
+    stopViewAnim(); // grabbing the canvas cancels a frame-nav flight
     setSelectedId(null);
     setShowProps(false);
     setShowAddMenu(false);
@@ -798,7 +884,10 @@ export default function App() {
         e.preventDefault();
         // Coalesced: a burst of arrow presses is one undo step.
         pushHistory(itemsRef.current, `nudge:${sel.id}`);
-        setItems((prev) => prev.map((i) => (i.id === sel.id ? { ...i, x: i.x + nudge[0], y: i.y + nudge[1] } : i)));
+        // Nudging a frame carries its contents, matching drag behavior.
+        const movedIds = new Set([sel.id]);
+        if (sel.type === "frame") for (const c of itemsInFrame(sel, itemsRef.current)) movedIds.add(c.id);
+        setItems((prev) => prev.map((i) => (movedIds.has(i.id) ? { ...i, x: i.x + nudge[0], y: i.y + nudge[1] } : i)));
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -1141,6 +1230,10 @@ export default function App() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory, isChatLoading]);
 
+  // Life-area frames (background containers). Order is insertion order — stable
+  // chips in the nav strip, stable stacking among frames.
+  const frameItems = items.filter((i) => i.type === "frame");
+
   // ─ Board brightness tied to today's habit completion ─
   const trackers = items.filter((i) => i.type === "tracker");
   const doneTodayCount = trackers.reduce((acc, item) => {
@@ -1341,6 +1434,13 @@ export default function App() {
                   <button onClick={() => { setShowImageModal(true); setShowAddMenu(false); }} className="text-left p-1.5 hover:bg-gray-100 dark:hover:bg-slate-700 rounded text-xs flex gap-2 text-gray-700 dark:text-slate-300">
                     <LinkIcon size={14} /> Image
                   </button>
+                  <button
+                    onClick={() => addItem("frame", "Life Area", { color: "#8b5cf6" })}
+                    title="Frame — group a life area"
+                    className="text-left p-1.5 hover:bg-violet-50 dark:hover:bg-violet-900/30 rounded text-xs flex gap-2 text-gray-700 dark:text-slate-300"
+                  >
+                    <Frame size={14} /> Frame
+                  </button>
                   <div className="h-px bg-gray-100 dark:bg-slate-700 my-0.5" />
                   <div className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-0.5 px-2">Productivity</div>
                   <button onClick={() => addItem("goals", "{}")} className="text-left p-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded text-xs flex gap-2 text-gray-700 dark:text-slate-300">
@@ -1417,23 +1517,44 @@ export default function App() {
                 {/* Bloom garden: permanent, positive-only record of fully-completed days,
                     planted along the bottom edge of the home zone. */}
                 {homeZone && (boardConfig.blooms || 0) > 0 && <BloomGarden count={boardConfig.blooms} zone={homeZone} />}
-                {items.map((item) => (
-                  <div key={item.id} className="board-item contents">
-                    <BoardItem
-                      item={item}
-                      isSelected={selectedId === item.id}
-                      onSelect={handlePointerDownItem}
-                      onUpdate={handleUpdateItem}
-                      onDayClick={(itemId, dateStr, data) => setCalendarModalData({ itemId, dateStr, data })}
-                      zenMode={zenMode}
-                      zoom={view.zoom}
-                      onMagicBreakdown={handleMagicBreakdown}
-                      onOpenProps={() => setShowProps(true)}
-                      onResizeStart={handleItemResizeStart}
-                      onResizeEnd={handleItemResizeEnd}
-                    />
-                  </div>
-                ))}
+                {/* Frames layer: its own stacking context UNDER the items layer, so a
+                    frame's zIndex only orders it among frames — never above content. */}
+                <div className="absolute top-0 left-0" style={{ zIndex: 0 }}>
+                  {frameItems.map((frame) => (
+                    <div key={frame.id} className="board-item contents">
+                      <FrameItem
+                        item={frame}
+                        isSelected={selectedId === frame.id}
+                        onSelect={handlePointerDownItem}
+                        onUpdate={handleUpdateItem}
+                        zenMode={zenMode}
+                        zoom={view.zoom}
+                        onOpenProps={() => setShowProps(true)}
+                        onResizeStart={handleItemResizeStart}
+                        onResizeEnd={handleItemResizeEnd}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="absolute top-0 left-0" style={{ zIndex: 1 }}>
+                  {items.filter((i) => i.type !== "frame").map((item) => (
+                    <div key={item.id} className="board-item contents">
+                      <BoardItem
+                        item={item}
+                        isSelected={selectedId === item.id}
+                        onSelect={handlePointerDownItem}
+                        onUpdate={handleUpdateItem}
+                        onDayClick={(itemId, dateStr, data) => setCalendarModalData({ itemId, dateStr, data })}
+                        zenMode={zenMode}
+                        zoom={view.zoom}
+                        onMagicBreakdown={handleMagicBreakdown}
+                        onOpenProps={() => setShowProps(true)}
+                        onResizeStart={handleItemResizeStart}
+                        onResizeEnd={handleItemResizeEnd}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
               {/* Alignment guides: 1px screen-space lines where the dragged item is snapping */}
               {snapGuides && (
@@ -1479,6 +1600,42 @@ export default function App() {
                       </button>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* FRAME NAV — one chip per life-area frame; clicking flies the camera
+                  to fit that frame. Hidden with the rest of the chrome (zen/playback). */}
+              {!chromeHidden && frameItems.length > 0 && (
+                <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 bg-white/90 dark:bg-slate-800/90 backdrop-blur rounded-full shadow-lg border border-gray-200 dark:border-slate-700 px-1.5 py-1 max-w-[70%]">
+                  {!frameNavCollapsed && (
+                    <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
+                      {frameItems.map((f) => (
+                        <button
+                          key={f.id}
+                          onClick={() => animateViewTo(viewTargetFor([f], 80))}
+                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold text-gray-600 dark:text-slate-300 hover:bg-purple-50 dark:hover:bg-purple-900/30 hover:text-purple-700 dark:hover:text-purple-300 whitespace-nowrap"
+                          title={`Go to "${safeContent(f.content) || "Untitled area"}"`}
+                        >
+                          <span className="w-2 h-2 rounded-full flex-none" style={{ backgroundColor: f.color || "#8b5cf6" }} />
+                          <span className="max-w-[9rem] truncate">{safeContent(f.content) || "Untitled area"}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => setFrameNavCollapsed((c) => !c)}
+                    className="p-1.5 text-gray-400 dark:text-slate-500 hover:text-purple-600 dark:hover:text-purple-400 rounded-full flex-none"
+                    title={frameNavCollapsed ? "Show frames" : "Hide frames"}
+                  >
+                    {frameNavCollapsed ? (
+                      <span className="flex items-center gap-1">
+                        <Frame size={13} />
+                        <ChevronDown size={12} />
+                      </span>
+                    ) : (
+                      <ChevronUp size={14} />
+                    )}
+                  </button>
                 </div>
               )}
 
@@ -1714,18 +1871,26 @@ export default function App() {
             }}
           />
           <div className="absolute top-0 left-0" style={{ transform: `translate(${pngStage.offX}px, ${pngStage.offY}px)` }}>
-            {items.map((item) => (
-              <BoardItem
-                key={`export-${item.id}`}
-                item={item}
-                isSelected={false}
-                zenMode={true}
-                zoom={1}
-                onSelect={() => {}}
-                onUpdate={() => {}}
-                onDayClick={() => {}}
-              />
-            ))}
+            {/* Frames render in their own under-layer, mirroring the live canvas. */}
+            <div className="absolute top-0 left-0" style={{ zIndex: 0 }}>
+              {items.filter((i) => i.type === "frame").map((frame) => (
+                <FrameItem key={`export-${frame.id}`} item={frame} isSelected={false} zenMode={true} zoom={1} onSelect={() => {}} onUpdate={() => {}} />
+              ))}
+            </div>
+            <div className="absolute top-0 left-0" style={{ zIndex: 1 }}>
+              {items.filter((i) => i.type !== "frame").map((item) => (
+                <BoardItem
+                  key={`export-${item.id}`}
+                  item={item}
+                  isSelected={false}
+                  zenMode={true}
+                  zoom={1}
+                  onSelect={() => {}}
+                  onUpdate={() => {}}
+                  onDayClick={() => {}}
+                />
+              ))}
+            </div>
           </div>
         </div>
       )}

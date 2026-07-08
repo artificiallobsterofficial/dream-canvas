@@ -14,6 +14,9 @@ export const NOTE_COLORS = ["#fef3c7", "#dbeafe", "#fce7f3", "#dcfce7", "#f3f4f6
 
 export const TRACKER_COLORS = ["#10b981", "#3b82f6", "#8b5cf6", "#ec4899", "#f97316", "#ef4444", "#06b6d4", "#84cc16", "#1f2937"];
 
+// Frame accents: tint + border + label chip of life-area frames.
+export const FRAME_COLORS = ["#8b5cf6", "#6366f1", "#3b82f6", "#10b981", "#f59e0b", "#ec4899", "#06b6d4", "#64748b"];
+
 export const TRACKER_MARKERS = [
   { id: "check", icon: "✔️" },
   { id: "heart", icon: "❤️" },

@@ -14,6 +14,14 @@ body {
   overscroll-behavior: none;
 }
 
+/* Hide scrollbars on overflow strips that scroll by drag/wheel (frame nav). */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 /* ── Styled form controls (checkbox / range / date / time) ──
    Shared classes so native inputs match the frosted purple aesthetic in both themes. */
 @layer components {
