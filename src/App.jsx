@@ -1867,28 +1867,59 @@ export default function App() {
             {showTemplateModal && <TemplateModal onApply={applyTemplate} onClose={() => setShowTemplateModal(false)} />}
             {calendarModalData &&
               (() => {
-                const { itemId, dateStr, dateKeys, data } = calendarModalData;
+                const { itemId, dateStr, dateKeys, data, repeat } = calendarModalData;
                 if (dateKeys) {
                   // Multi-day: `data` mirrors what was last applied so the
                   // status buttons highlight; each action writes the whole range.
+                  // "Repeat weekly" expands the selection's weekdays from the
+                  // earliest picked day through the end of that month. Keys are
+                  // parsed as local dates (new Date("YYYY-MM-DD") would be UTC).
+                  const expandWeekly = (keys) => {
+                    const parse = (k) => k.split("-").map(Number);
+                    const dows = new Set(keys.map((k) => { const [y, m, d] = parse(k); return new Date(y, m - 1, d).getDay(); }));
+                    const [y, m] = parse(keys[0]);
+                    const startDay = Math.min(...keys.map((k) => parse(k)[2]));
+                    const daysInMonth = new Date(y, m, 0).getDate();
+                    const out = [];
+                    for (let d = startDay; d <= daysInMonth; d++) {
+                      if (dows.has(new Date(y, m - 1, d).getDay())) out.push(`${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
+                    }
+                    return out;
+                  };
+                  const effectiveKeys = repeat ? expandWeekly(dateKeys) : dateKeys;
                   const updateStatus = (status) => {
                     const next = data.status === status ? null : status;
-                    handleDaysUpdate(itemId, dateKeys, { status: next });
+                    handleDaysUpdate(itemId, effectiveKeys, { status: next });
                     setCalendarModalData({ ...calendarModalData, data: { ...data, status: next } });
                   };
                   const updateEvent = (text) => {
-                    handleDaysUpdate(itemId, dateKeys, { event: text });
+                    handleDaysUpdate(itemId, effectiveKeys, { event: text });
                     setCalendarModalData({ ...calendarModalData, data: { ...data, event: text } });
                   };
                   const clearAll = () => {
-                    handleDaysUpdate(itemId, dateKeys, { clear: true });
+                    handleDaysUpdate(itemId, effectiveKeys, { clear: true });
                     setCalendarModalData({ ...calendarModalData, data: { status: null, event: "" } });
+                  };
+                  const toggleRepeat = () => {
+                    const next = !repeat;
+                    // Turning repeat on after choosing a status/note: bring the
+                    // newly-added weekdays up to date immediately.
+                    if (next) {
+                      const patch = {};
+                      if (data.status) patch.status = data.status;
+                      if (data.event && data.event.trim()) patch.event = data.event;
+                      if (Object.keys(patch).length > 0) handleDaysUpdate(itemId, expandWeekly(dateKeys), patch);
+                    }
+                    setCalendarModalData({ ...calendarModalData, repeat: next });
                   };
                   return (
                     <CalendarDayModal
                       data={data}
-                      dateStr={`${dateKeys[0]} → ${dateKeys[dateKeys.length - 1]}`}
-                      multiCount={dateKeys.length}
+                      dateStr={`${effectiveKeys[0]} → ${effectiveKeys[effectiveKeys.length - 1]}`}
+                      multiCount={effectiveKeys.length}
+                      repeat={!!repeat}
+                      repeatExtra={expandWeekly(dateKeys).length - dateKeys.length}
+                      onToggleRepeat={toggleRepeat}
                       onUpdateStatus={updateStatus}
                       onUpdateEvent={updateEvent}
                       onClear={clearAll}

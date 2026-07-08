@@ -1,6 +1,6 @@
-import { Clock, X, CheckCircle2, Calendar, Eraser } from "lucide-react";
+import { Clock, X, CheckCircle2, Calendar, Eraser, Repeat } from "lucide-react";
 
-const CalendarDayModal = ({ data, dateStr, multiCount, onUpdateStatus, onUpdateEvent, onClear, onClose }) => (
+const CalendarDayModal = ({ data, dateStr, multiCount, repeat, repeatExtra, onToggleRepeat, onUpdateStatus, onUpdateEvent, onClear, onClose }) => (
   <div className="fixed inset-0 bg-black/20 backdrop-blur-[1px] z-50 flex items-center justify-center p-4">
     <div className="bg-white dark:bg-slate-900 dark:border dark:border-slate-700 rounded-xl shadow-2xl w-full max-w-sm p-4">
       <div className="flex justify-between items-center mb-3">
@@ -52,6 +52,16 @@ const CalendarDayModal = ({ data, dateStr, multiCount, onUpdateStatus, onUpdateE
             onChange={(e) => onUpdateEvent(e.target.value)}
           />
         </div>
+        {multiCount > 1 && onToggleRepeat && (
+          <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-slate-300 cursor-pointer select-none py-0.5">
+            <input type="checkbox" className="dc-check" checked={repeat} onChange={onToggleRepeat} />
+            <Repeat size={13} className="text-purple-500 flex-none" />
+            <span>
+              Repeat weekly until month end
+              {!repeat && repeatExtra > 0 && <span className="text-gray-400 dark:text-slate-500"> (+{repeatExtra} more days)</span>}
+            </span>
+          </label>
+        )}
         {multiCount > 1 && (
           <button
             onClick={onClear}
