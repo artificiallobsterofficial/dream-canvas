@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { calculateStreak, isFreezeActive, normalizeDayData, safeContent, todayKey } from "../utils/helpers";
+import { hasProxy, proxyAI } from "./cloud";
 
 const BYOK_STORAGE_KEY = "dreamcanvas_byok";
 
@@ -28,7 +29,8 @@ export const setStoredKey = (key) => {
   } catch {}
 };
 
-// Env keys (local dev) take precedence; otherwise the user's stored key.
+// Env keys (local dev) take precedence, then the user's stored key, then the
+// shared serverless proxy baked into the deployed build (key stays server-side).
 // Provider is inferred from the key prefix: sk-ant-* → Anthropic, else Gemini.
 const resolve = () => {
   if (envAnthropicKey) return { provider: "claude", key: envAnthropicKey, source: "env" };
@@ -36,6 +38,7 @@ const resolve = () => {
   const stored = getStoredKey();
   if (stored.startsWith("sk-ant-")) return { provider: "claude", key: stored, source: "byok" };
   if (stored) return { provider: "gemini", key: stored, source: "byok" };
+  if (hasProxy()) return { provider: "proxy", key: null, source: "proxy" };
   return { provider: null, key: null, source: null };
 };
 
@@ -79,6 +82,7 @@ export const callAI = async (prompt, systemPrompt) => {
     const { provider, key } = resolve();
     if (provider === "claude") return await callAnthropic(key, prompt, systemPrompt);
     if (provider === "gemini") return await callGemini(key, prompt, systemPrompt);
+    if (provider === "proxy") return await proxyAI(prompt, systemPrompt || DEFAULT_SYSTEM);
     return null;
   } catch (e) {
     console.error("AI error:", e);

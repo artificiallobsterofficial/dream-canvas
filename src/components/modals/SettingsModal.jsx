@@ -1,9 +1,19 @@
 import { useState, useEffect } from "react";
-import { Settings, X, Trash2, History, RotateCcw, KeyRound, Bell, RefreshCw, Sun, Moon, Monitor } from "lucide-react";
+import { Settings, X, Trash2, History, RotateCcw, KeyRound, Bell, RefreshCw, Sun, Moon, Monitor, Cloud, Copy, Check, MessageSquare } from "lucide-react";
 import { COLORS } from "../../constants/colors";
 import { getAiProvider, getAiSource, getStoredKey, setStoredKey, callAI } from "../../services/ai";
 import { SnapshotService } from "../../services/storage";
 import { enableReminders } from "../../services/reminders";
+import {
+  hasProxy,
+  getSyncCode,
+  setSyncCode,
+  generateSyncCode,
+  isValidSyncCode,
+  saveCloudBackup,
+  loadCloudBackup,
+  sendFeedback,
+} from "../../services/cloud";
 
 const REASON_LABELS = {
   daily: "Daily auto-backup",
@@ -19,13 +29,70 @@ const THEME_OPTIONS = [
   { id: "system", label: "System", icon: Monitor },
 ];
 
-const SettingsModal = ({ boardConfig, setBoardConfig, onClearBoard, onRestoreSnapshot, lastExportAt, onClose }) => {
+const SettingsModal = ({ boardConfig, setBoardConfig, onClearBoard, onRestoreSnapshot, getBoardData, onCloudRestore, lastExportAt, onClose }) => {
   const [snapshots, setSnapshots] = useState([]);
   // null | "checking" | "current" | "update" | "error"
   const [updateStatus, setUpdateStatus] = useState(null);
   const [keyInput, setKeyInput] = useState(getStoredKey());
   // null | "testing" | "ok" | "fail" | "wrong-provider"
   const [keyStatus, setKeyStatus] = useState(null);
+  // ─ Cloud backup ─
+  const [syncCode, setSyncCodeState] = useState(getSyncCode());
+  const [codeInput, setCodeInput] = useState("");
+  const [codeCopied, setCodeCopied] = useState(false);
+  // null | "saving" | "saved" | "restoring" | "save-fail" | "restore-fail" | "not-found" | "bad-code"
+  const [cloudStatus, setCloudStatus] = useState(null);
+  const [cloudSavedAt, setCloudSavedAt] = useState(null);
+  // ─ Feedback ─
+  const [fbMessage, setFbMessage] = useState("");
+  const [fbContact, setFbContact] = useState("");
+  // null | "sending" | "sent" | "fail"
+  const [fbStatus, setFbStatus] = useState(null);
+
+  const adoptCode = (code) => {
+    setSyncCode(code);
+    setSyncCodeState(code);
+    setCodeInput("");
+    setCloudStatus(null);
+    setCloudSavedAt(null);
+  };
+
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(syncCode);
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 1500);
+    } catch {}
+  };
+
+  const cloudSave = async () => {
+    setCloudStatus("saving");
+    const res = await saveCloudBackup(syncCode, getBoardData());
+    setCloudStatus(res.ok ? "saved" : res.error === "too_large" ? "too-large" : "save-fail");
+    if (res.ok) setCloudSavedAt(res.savedAt);
+  };
+
+  const cloudRestore = async () => {
+    setCloudStatus("restoring");
+    const res = await loadCloudBackup(syncCode);
+    if (!res.ok) {
+      setCloudStatus(res.error === "not_found" ? "not-found" : "restore-fail");
+      return;
+    }
+    setCloudStatus(null);
+    onCloudRestore(res.data);
+  };
+
+  const submitFeedback = async () => {
+    if (!fbMessage.trim()) return;
+    setFbStatus("sending");
+    const ok = await sendFeedback({ message: fbMessage.trim(), contact: fbContact.trim() });
+    setFbStatus(ok ? "sent" : "fail");
+    if (ok) {
+      setFbMessage("");
+      setFbContact("");
+    }
+  };
 
   useEffect(() => {
     SnapshotService.list().then(setSnapshots);
@@ -211,9 +278,13 @@ const SettingsModal = ({ boardConfig, setBoardConfig, onClearBoard, onRestoreSna
             <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-2">
               Status:{" "}
               <span className="font-bold text-gray-700 dark:text-slate-300">
-                {provider === "claude" ? "Claude" : provider === "gemini" ? "Gemini" : "Offline fallbacks"}
+                {provider === "claude" ? "Claude" : provider === "gemini" ? "Gemini" : provider === "proxy" ? "DreamCanvas Cloud" : "Offline fallbacks"}
               </span>
-              {provider && <span className="text-gray-400 dark:text-slate-500"> · {source === "env" ? "key from .env" : "your key"}</span>}
+              {provider && (
+                <span className="text-gray-400 dark:text-slate-500">
+                  {" "}· {source === "env" ? "key from .env" : source === "proxy" ? "shared, no key needed" : "your key"}
+                </span>
+              )}
             </p>
             {source === "env" ? (
               <p className="text-[10px] text-gray-400 dark:text-slate-500">A key from .env is in use; remove it to use a browser-stored key instead.</p>
@@ -240,11 +311,125 @@ const SettingsModal = ({ boardConfig, setBoardConfig, onClearBoard, onRestoreSna
                 {keyStatus === "wrong-provider" && <p className="text-[10px] text-red-500 mt-1 font-medium">✗ That looks like an OpenAI key — DreamCanvas supports Anthropic (sk-ant-…) or Gemini keys.</p>}
                 <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1.5 leading-relaxed">
                   Stored only in this browser; calls go directly from your browser to the provider. Don't enter a key on a shared computer.
-                  Without a key, AI features use built-in offline responses.
+                  {hasProxy()
+                    ? " A key is optional — without one, the shared DreamCanvas Cloud handles AI."
+                    : " Without a key, AI features use built-in offline responses."}
                 </p>
               </>
             )}
           </div>
+
+          {hasProxy() && (
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1">
+                <Cloud size={11} /> Cloud Backup
+              </label>
+              {!syncCode ? (
+                <>
+                  <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-2">
+                    Save your board to the cloud with a private sync code, and restore it on any device.
+                  </p>
+                  <button
+                    onClick={() => adoptCode(generateSyncCode())}
+                    className="w-full py-1.5 bg-purple-600 text-white rounded-lg text-[11px] font-medium hover:bg-purple-700 mb-2"
+                  >
+                    Create my sync code
+                  </button>
+                  <div className="flex gap-1.5">
+                    <input
+                      placeholder="…or paste a code from another device"
+                      className="flex-1 dc-field text-[11px] py-1.5 font-mono"
+                      value={codeInput}
+                      onChange={(e) => setCodeInput(e.target.value)}
+                    />
+                    <button
+                      onClick={() => (isValidSyncCode(codeInput) ? adoptCode(codeInput.trim()) : setCloudStatus("bad-code"))}
+                      className="px-2.5 py-1.5 bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300 rounded-lg text-[11px] font-medium hover:bg-gray-200 dark:hover:bg-slate-700"
+                    >
+                      Use code
+                    </button>
+                  </div>
+                  {cloudStatus === "bad-code" && <p className="text-[10px] text-red-500 mt-1 font-medium">✗ That doesn't look like a sync code.</p>}
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <code className="flex-1 text-[10px] font-mono bg-gray-50 dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-lg px-2 py-1.5 text-gray-600 dark:text-slate-300 truncate">
+                      {syncCode}
+                    </code>
+                    <button onClick={copyCode} className="p-1.5 text-gray-400 dark:text-slate-500 hover:text-purple-600 dark:hover:text-purple-400 rounded-lg" title="Copy sync code">
+                      {codeCopied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+                    </button>
+                  </div>
+                  <div className="flex gap-1.5 mb-1.5">
+                    <button
+                      onClick={cloudSave}
+                      disabled={cloudStatus === "saving" || cloudStatus === "restoring"}
+                      className="flex-1 py-1.5 bg-purple-600 text-white rounded-lg text-[11px] font-medium hover:bg-purple-700 disabled:opacity-60"
+                    >
+                      {cloudStatus === "saving" ? "Saving…" : "Save to cloud"}
+                    </button>
+                    <button
+                      onClick={cloudRestore}
+                      disabled={cloudStatus === "saving" || cloudStatus === "restoring"}
+                      className="flex-1 py-1.5 bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300 rounded-lg text-[11px] font-medium hover:bg-gray-200 dark:hover:bg-slate-700 disabled:opacity-60"
+                    >
+                      {cloudStatus === "restoring" ? "Restoring…" : "Restore from cloud"}
+                    </button>
+                  </div>
+                  {cloudStatus === "saved" && (
+                    <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+                      ✓ Saved to cloud{cloudSavedAt ? ` · ${new Date(cloudSavedAt).toLocaleString()}` : ""}.
+                    </p>
+                  )}
+                  {cloudStatus === "save-fail" && <p className="text-[10px] text-red-500 font-medium">✗ Save failed — check your connection and try again.</p>}
+                  {cloudStatus === "too-large" && <p className="text-[10px] text-red-500 font-medium">✗ Board is too big for cloud backup (over 2 MB — pasted images add up). Use the JSON export instead.</p>}
+                  {cloudStatus === "not-found" && <p className="text-[10px] text-red-500 font-medium">✗ No backup found for this code yet — save one first.</p>}
+                  {cloudStatus === "restore-fail" && <p className="text-[10px] text-red-500 font-medium">✗ Restore failed — check your connection and try again.</p>}
+                  <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1 leading-relaxed">
+                    Your code is the only key to this backup — copy it somewhere safe to move boards between devices.{" "}
+                    <button onClick={() => adoptCode("")} className="underline hover:text-red-500">
+                      Forget code
+                    </button>
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+
+          {hasProxy() && (
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1">
+                <MessageSquare size={11} /> Send Feedback
+              </label>
+              <textarea
+                placeholder="What's working? What's confusing? What's missing?"
+                className="w-full dc-field text-[11px] py-1.5 mb-1.5 resize-none"
+                rows={3}
+                maxLength={2000}
+                value={fbMessage}
+                onChange={(e) => { setFbMessage(e.target.value); if (fbStatus) setFbStatus(null); }}
+              />
+              <div className="flex gap-1.5">
+                <input
+                  placeholder="Email or name (optional)"
+                  className="flex-1 dc-field text-[11px] py-1.5"
+                  maxLength={200}
+                  value={fbContact}
+                  onChange={(e) => setFbContact(e.target.value)}
+                />
+                <button
+                  onClick={submitFeedback}
+                  disabled={!fbMessage.trim() || fbStatus === "sending"}
+                  className="px-2.5 py-1.5 bg-purple-600 text-white rounded-lg text-[11px] font-medium hover:bg-purple-700 disabled:opacity-60"
+                >
+                  {fbStatus === "sending" ? "Sending…" : "Send"}
+                </button>
+              </div>
+              {fbStatus === "sent" && <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-1 font-medium">✓ Thank you — feedback sent.</p>}
+              {fbStatus === "fail" && <p className="text-[10px] text-red-500 mt-1 font-medium">✗ Couldn't send — check your connection and try again.</p>}
+            </div>
+          )}
 
           <div className="border-t border-gray-100 dark:border-slate-800 pt-3 flex items-center justify-between gap-2">
             <p className="text-[10px] text-gray-400 dark:text-slate-500">

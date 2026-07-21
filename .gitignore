@@ -4,3 +4,6 @@ dist
 .env.local
 *.local
 .DS_Store
+# Worker local-dev secrets and wrangler state
+.dev.vars
+.wrangler

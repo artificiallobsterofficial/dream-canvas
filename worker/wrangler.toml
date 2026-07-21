@@ -1,0 +1,23 @@
+# DreamCanvas API — Cloudflare Worker
+# Deploy steps: see worker/DEPLOY.md
+name = "dreamcanvas-api"
+main = "src/index.js"
+compatibility_date = "2026-07-01"
+
+# Created with: npx wrangler kv namespace create DC_KV
+# Paste the generated id below before deploying.
+[[kv_namespaces]]
+binding = "DC_KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[vars]
+# Model used for the shared proxy. Haiku keeps the shared endpoint cheap;
+# coach replies are <150 words so a bigger model buys little here.
+# BYOK users in the app still get the full-size model they pay for.
+MODEL = "claude-haiku-4-5-20251001"
+# Comma-separated list of allowed browser origins (localhost is always allowed).
+ALLOWED_ORIGINS = "https://artificiallobsterofficial.github.io"
+
+# Secrets (set via CLI, never in this file):
+#   npx wrangler secret put ANTHROPIC_API_KEY
+#   npx wrangler secret put ADMIN_TOKEN        # any long random string; used to read feedback

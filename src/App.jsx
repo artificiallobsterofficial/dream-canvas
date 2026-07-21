@@ -1222,6 +1222,32 @@ export default function App() {
     });
   };
 
+  // Cloud restore arrives pre-parsed from the sync-code backup; same replace
+  // semantics (and defensive onboardedAt) as a file import.
+  const handleCloudRestore = (data) => {
+    if (!data || !Array.isArray(data.items)) return;
+    const restore = () => {
+      SnapshotService.take(currentState(), "before-restore");
+      resetHistory();
+      setItems(data.items);
+      setBoardConfig({ backgroundColor: "#f3f4f6", ...(data.boardConfig || {}), onboardedAt: data.boardConfig?.onboardedAt || Date.now() });
+      if (data.profile) {
+        setUserXp(data.profile.xp || 0);
+        setUserLevel(data.profile.level || 1);
+      }
+      resetView();
+      setShowSettingsModal(false);
+      setConfirmModal({ isOpen: false });
+    };
+    if (items.length > 0) {
+      setConfirmModal({
+        isOpen: true,
+        message: "Restore the cloud backup? Your current board will be replaced (a snapshot of it is kept first).",
+        onConfirm: restore,
+      });
+    } else restore();
+  };
+
   const handleImportFile = (file) => {
     if (!file) return;
     const reader = new FileReader();
@@ -1860,6 +1886,8 @@ export default function App() {
                 setBoardConfig={setBoardConfig}
                 onClearBoard={() => { requestClearBoard(); setShowSettingsModal(false); }}
                 onRestoreSnapshot={handleRestoreSnapshot}
+                getBoardData={currentState}
+                onCloudRestore={handleCloudRestore}
                 lastExportAt={lastExportAt}
                 onClose={() => setShowSettingsModal(false)}
               />

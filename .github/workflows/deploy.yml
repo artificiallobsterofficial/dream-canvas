@@ -25,6 +25,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+        env:
+          # Repo variable (Settings → Secrets and variables → Actions → Variables).
+          # Unset = app ships pure-static with offline AI fallbacks, as before.
+          VITE_AI_PROXY_URL: ${{ vars.AI_PROXY_URL }}
       - uses: actions/configure-pages@v5
         with:
           enablement: true
